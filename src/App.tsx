@@ -9,6 +9,8 @@ import {
 } from 'lucide-react'
 import { supabase, getSupabaseConfig, setSupabaseConfig } from './lib/supabase'
 import { useTheme } from './useTheme'
+import { VouchersManager } from './components/VouchersManager'
+import { TransactionsManager } from './components/TransactionsManager'
 
 type Session = { id?: string; name: string; device: string; location: string; plan: string; usage: string; progress: number; color: string }
 type Transaction = { id: string; customer: string; method: string; package: string; amount: string; status: string; time: string }
@@ -1216,7 +1218,19 @@ function OperatorDashboard({
             />
           )}
 
-          {activeNav !== 'Overview' && activeNav !== 'Routers' && activeNav !== 'Customers' && activeNav !== 'Packages' && (
+          {activeNav === 'Vouchers' && (
+            <div className="page-content">
+              <VouchersManager />
+            </div>
+          )}
+
+          {activeNav === 'Transactions' && (
+            <div className="page-content">
+              <TransactionsManager />
+            </div>
+          )}
+
+          {activeNav !== 'Overview' && activeNav !== 'Routers' && activeNav !== 'Customers' && activeNav !== 'Packages' && activeNav !== 'Vouchers' && activeNav !== 'Transactions' && (
             <SectionPlaceholder section={activeNav} />
           )}
         </div>

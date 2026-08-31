@@ -469,6 +469,12 @@ button {
   margin: 0 auto;
 }
 
+.page-content {
+  padding: 34px 43px 58px;
+  max-width: 1550px;
+  margin: 0 auto;
+}
+
 .page-heading {
   display: flex;
   align-items: flex-end;

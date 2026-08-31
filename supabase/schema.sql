@@ -29,6 +29,7 @@ create table if not exists public.vouchers (
   id uuid primary key default gen_random_uuid(),
   code text not null unique,
   package_name text not null,
+  redeemed_by text,
   redeemed_at timestamptz,
   created_at timestamptz not null default now()
 );
@@ -91,6 +92,10 @@ create index if not exists hotspot_sessions_active_idx
 create index if not exists vouchers_code_idx
   on public.vouchers (code);
 
+create index if not exists vouchers_available_idx
+  on public.vouchers (created_at desc)
+  where redeemed_at is null;
+
 create index if not exists transactions_created_at_idx
   on public.transactions (created_at desc);
 
@@ -125,9 +130,8 @@ create policy "Authenticated operators can view and create vouchers"
   using (true)
   with check (true);
 
-create policy "Public can check/redeem vouchers"
-  on public.vouchers for select to anon
-  using (true);
+-- Voucher codes are credentials. Do not expose the table to anonymous users;
+-- customer-facing redemption should call a trusted Edge Function or the RPC below.
 
 -- Policies for packages
 create policy "Authenticated operators can manage packages"
@@ -147,6 +151,82 @@ create policy "Authenticated operators can view transactions"
 create policy "Authenticated operators can insert transactions"
   on public.transactions for insert to authenticated
   with check (true);
+
+-- Atomically consume a voucher and create its matching revenue record. This
+-- prevents two simultaneous redemption attempts from using the same code.
+create or replace function public.redeem_voucher(
+  p_code text,
+  p_customer_name text
+)
+returns table (
+  transaction_id text,
+  package_name text,
+  amount text,
+  redeemed_at timestamptz
+)
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  v_voucher public.vouchers%rowtype;
+  v_price numeric(10, 2);
+  v_transaction_id text;
+  v_now timestamptz := now();
+begin
+  if auth.uid() is null then
+    raise exception 'Authentication required';
+  end if;
+
+  if nullif(trim(p_customer_name), '') is null then
+    raise exception 'Customer name is required';
+  end if;
+
+  select * into v_voucher
+  from public.vouchers
+  where code = upper(trim(p_code))
+    and redeemed_at is null
+  for update;
+
+  if not found then
+    raise exception 'Voucher is invalid or has already been redeemed';
+  end if;
+
+  select price_amount into v_price
+  from public.packages
+  where name = v_voucher.package_name
+  order by created_at desc
+  limit 1;
+
+  v_transaction_id := '#TRX-' || upper(substr(replace(gen_random_uuid()::text, '-', ''), 1, 10));
+
+  update public.vouchers
+  set redeemed_by = trim(p_customer_name), redeemed_at = v_now
+  where id = v_voucher.id;
+
+  insert into public.transactions (
+    id, customer_name, method, package_name, amount, status, time_display
+  ) values (
+    v_transaction_id,
+    trim(p_customer_name),
+    'Voucher',
+    v_voucher.package_name,
+    'KSh ' || to_char(coalesce(v_price, 0), 'FM999,999,990.00'),
+    'Paid',
+    'Just now'
+  );
+
+  update public.packages
+  set sales_count = sales_count + 1
+  where name = v_voucher.package_name;
+
+  return query select v_transaction_id, v_voucher.package_name,
+    'KSh ' || to_char(coalesce(v_price, 0), 'FM999,999,990.00'), v_now;
+end;
+$$;
+
+revoke all on function public.redeem_voucher(text, text) from public;
+grant execute on function public.redeem_voucher(text, text) to authenticated;
 
 -- Policies for routers
 create policy "Authenticated operators can view routers"
