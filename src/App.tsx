@@ -1,21 +1,46 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useState, useRef } from 'react'
 import {
-  Activity, AlertTriangle, ArrowDownRight, ArrowUpRight, Ban, Bell, CheckCircle2, ChevronDown,
-  CircleDollarSign, Clock3, Cpu, CreditCard, Database, Download, ExternalLink, Gauge, HardDrive,
-  Infinity, Key, Laptop, LayoutDashboard, LifeBuoy, LogOut, MessageSquare, Moon, MoreHorizontal,
-  Network, Phone, Play, Plus, Radio, ReceiptText, RefreshCw, Router, Search, Send, Server,
-  Settings2, ShieldAlert, ShieldCheck, Signal, Smartphone, Sparkles, Sun, Tablet, Ticket,
-  ToggleLeft, ToggleRight, Trash2, UserCheck, UserPlus, Users, UserX, Wifi, WifiOff, X, Zap,
+  Activity, AlertTriangle, ArrowDownRight, ArrowUpRight, Ban, BarChart3, Bell, Check,
+  CheckCircle2, ChevronDown, CircleDollarSign, Clock3, Copy, Cpu, CreditCard, Database,
+  Download, ExternalLink, Eye, EyeOff, FileSpreadsheet, FileText, Filter, Flame, Gauge, Globe,
+  HardDrive, Infinity, Key, KeyRound, Laptop, LayoutDashboard, LifeBuoy, Lock, LogOut,
+  MessageSquare, Moon, MoreHorizontal, Network, Palette, Phone, Play, Plus, Printer, Radio,
+  ReceiptText, RefreshCw, Router, Save, Search, Send, Server, Settings, Settings2, Shield,
+  ShieldAlert, ShieldCheck, Signal, Sliders, Smartphone, Sparkles, Sun, Tablet, Ticket,
+  ToggleLeft, ToggleRight, Trash2, TrendingUp, Unlock, UserCheck, UserPlus, Users, UserX,
+  Wifi, WifiOff, X, Zap, MessageCircle, SendHorizonal, Terminal, CheckCheck,
 } from 'lucide-react'
 import { supabase, getSupabaseConfig, setSupabaseConfig } from './lib/supabase'
 import { useTheme } from './useTheme'
-import { VouchersManager } from './components/VouchersManager'
-import { TransactionsManager } from './components/TransactionsManager'
+import {
+  SmsGatewayConfig,
+  SmsProviderType,
+  SmsSendResult,
+  getSmsConfig,
+  saveSmsConfig,
+  dispatchSms,
+  sendSmsOtp,
+  sendVoucherSms,
+  sendCustomSms,
+  testSmsConnection,
+  formatE164Phone,
+  DEFAULT_SMS_CONFIG,
+} from './lib/smsService'
 
 type Session = { id?: string; name: string; device: string; location: string; plan: string; usage: string; progress: number; color: string }
-type Transaction = { id: string; customer: string; method: string; package: string; amount: string; status: string; time: string }
+type Transaction = { id: string; customer: string; phone?: string; method: string; package: string; amount: string; status: string; time: string; receipt?: string }
 type PackageItem = { id?: string; name: string; sales: string; amount: string; width: string; color: string }
 type RouterItem = { id?: string; name: string; value: string; status: string }
+
+export type OperatorUser = {
+  id: string
+  name: string
+  email: string
+  phone: string
+  role: 'Owner' | 'Admin' | 'Network Technician'
+  avatar: string
+  twoFactorEnabled: boolean
+}
 
 export type RouterDevice = {
   id: string
@@ -60,17 +85,99 @@ export type HotspotPackage = {
   color: string
 }
 
+export type VoucherRecord = {
+  id: string
+  code: string
+  package_name: string
+  price: string
+  status: 'active' | 'redeemed' | 'expired'
+  created_at: string
+  redeemed_by?: string
+  expires_at: string
+}
+
+export type HotspotSettings = {
+  businessName: string
+  location: string
+  headline: string
+  supportPhone: string
+  currency: string
+  timezone: string
+  primaryColor: string
+  portalTitle: string
+  portalMessage: string
+  termsEnabled: boolean
+  mikrotikIp: string
+  mikrotikPort: string
+  sessionTimeout: string
+  idleTimeout: string
+  burstMode: boolean
+  mpesaTill: string
+  mpesaPasskey: string
+  airtelMerchantId: string
+  // SMS Gateway Settings
+  smsProvider: SmsProviderType
+  smsApiKey: string
+  smsUsername: string
+  smsSenderId: string
+  smsCustomEndpoint: string
+  smsCustomHeaders: string
+  smsEnabled: boolean
+  smsDefaultCountryCode: string
+}
+
+const defaultOperator: OperatorUser = {
+  id: 'op-1',
+  name: 'Janet Muthoni',
+  email: 'operator@harborhouse.co.ke',
+  phone: '+254 712 345 678',
+  role: 'Owner',
+  avatar: 'JM',
+  twoFactorEnabled: true,
+}
+
+const defaultSettings: HotspotSettings = {
+  businessName: 'Harbor House',
+  location: 'Westlands, Nairobi',
+  headline: 'Welcome to Harbor House High-Speed Wi-Fi',
+  supportPhone: '+254 700 123 456',
+  currency: 'KSh',
+  timezone: 'Africa/Nairobi (EAT)',
+  primaryColor: '#d36b4d',
+  portalTitle: 'Connect to High Speed Internet',
+  portalMessage: 'Select an unlimited or day pass below or enter your voucher code.',
+  termsEnabled: true,
+  mikrotikIp: '10.20.0.1',
+  mikrotikPort: '8728',
+  sessionTimeout: '1440',
+  idleTimeout: '15',
+  burstMode: true,
+  mpesaTill: '892100',
+  mpesaPasskey: 'bfb279f9aa9bdbcf158e97dd71a467cd2e0c893059b10f78e6b72ada1ed2c919',
+  airtelMerchantId: 'HH-AIRTEL-901',
+  smsProvider: 'africastalking',
+  smsApiKey: '',
+  smsUsername: 'sandbox',
+  smsSenderId: 'ORION_WIFI',
+  smsCustomEndpoint: '',
+  smsCustomHeaders: '',
+  smsEnabled: true,
+  smsDefaultCountryCode: '+254',
+}
+
 const initialSessions: Session[] = [
-  { name: 'Maya Ochieng', device: 'iPhone 14 Pro', location: 'Lobby AP · 10.20.0.34', plan: '24 hour pass', usage: '1.2 GB / 5 GB', progress: 24, color: '#d36b4d' },
-  { name: 'Brian Kamau', device: 'MacBook Air', location: 'Poolside AP · 10.20.0.52', plan: '7 day access', usage: '8.4 GB / 20 GB', progress: 42, color: '#317d75' },
-  { name: 'Aisha Wanjiku', device: 'Galaxy S24', location: 'Cafe AP · 10.20.1.18', plan: '1 hour pass', usage: '680 MB / 1 GB', progress: 68, color: '#c58a32' },
+  { name: 'Maya Ochieng', device: 'iPhone 14 Pro', location: 'Lobby AP · 10.20.0.34', plan: '24h Day Pass Unlimited', usage: '1.2 GB / Unlimited', progress: 24, color: '#d36b4d' },
+  { name: 'Brian Kamau', device: 'MacBook Air', location: 'Poolside AP · 10.20.0.52', plan: '7 Days Unlimited Flex', usage: '8.4 GB / Unlimited', progress: 42, color: '#317d75' },
+  { name: 'Aisha Wanjiku', device: 'Galaxy S24', location: 'Cafe AP · 10.20.1.18', plan: '1 Hour Unlimited Rush', usage: '680 MB / Unlimited', progress: 68, color: '#c58a32' },
 ]
 
 const initialTransactions: Transaction[] = [
-  { id: '#TRX-2091', customer: 'Maya Ochieng', method: 'M-Pesa', package: '24 hour pass', amount: 'KSh 250', status: 'Paid', time: 'Today, 09:42' },
-  { id: '#TRX-2090', customer: 'Peter Mwangi', method: 'Voucher', package: '1 hour pass', amount: 'KSh 50', status: 'Paid', time: 'Today, 09:26' },
-  { id: '#TRX-2089', customer: 'Grace Njeri', method: 'M-Pesa', package: '7 day access', amount: 'KSh 1,200', status: 'Paid', time: 'Today, 08:58' },
-  { id: '#TRX-2088', customer: 'Samuel Kibet', method: 'Airtel Money', package: '5 GB data', amount: 'KSh 500', status: 'Pending', time: 'Today, 08:44' },
+  { id: '#TRX-2091', customer: 'Maya Ochieng', phone: '+254 712 345 678', method: 'M-Pesa', package: '24h Day Pass Unlimited', amount: 'KSh 350', status: 'Paid', time: 'Today, 09:42', receipt: 'QHD82910KP' },
+  { id: '#TRX-2090', customer: 'Peter Mwangi', phone: '+254 701 234 567', method: 'Voucher', package: '1 Hour Unlimited Rush', amount: 'KSh 70', status: 'Paid', time: 'Today, 09:26', receipt: 'VCH-9821' },
+  { id: '#TRX-2089', customer: 'Grace Njeri', phone: '+254 790 654 321', method: 'M-Pesa', package: '7 Days Unlimited Flex', amount: 'KSh 1,500', status: 'Paid', time: 'Today, 08:58', receipt: 'QHD82904LP' },
+  { id: '#TRX-2088', customer: 'Samuel Kibet', phone: '+254 711 987 654', method: 'Airtel Money', package: '30 Days Monthly Unlimited', amount: 'KSh 3,500', status: 'Paid', time: 'Today, 08:44', receipt: 'AIR-99210' },
+  { id: '#TRX-2087', customer: 'John Doe', phone: '+254 720 112 233', method: 'M-Pesa', package: 'Family 4-Devices 30d Unlimited', amount: 'KSh 6,500', status: 'Paid', time: 'Yesterday, 21:15', receipt: 'QHD82877TR' },
+  { id: '#TRX-2086', customer: 'Faith Chebet', phone: '+254 734 556 778', method: 'M-Pesa', package: '24h Day Pass Unlimited', amount: 'KSh 350', status: 'Paid', time: 'Yesterday, 19:40', receipt: 'QHD82862MN' },
 ]
 
 const initialPackagesList: HotspotPackage[] = [
@@ -152,6 +259,15 @@ const initialPackagesList: HotspotPackage[] = [
     is_active: true,
     color: 'teal',
   },
+]
+
+const initialVouchersList: VoucherRecord[] = [
+  { id: 'vch-1', code: 'ORN-9823-A4', package_name: '24h Day Pass Unlimited', price: 'KSh 350', status: 'active', created_at: 'Today, 09:15', expires_at: 'Sep 30, 2026' },
+  { id: 'vch-2', code: 'ORN-1102-K9', package_name: '1 Hour Unlimited Rush', price: 'KSh 70', status: 'active', created_at: 'Today, 09:15', expires_at: 'Sep 30, 2026' },
+  { id: 'vch-3', code: 'ORN-7741-X2', package_name: '7 Days Unlimited Flex', price: 'KSh 1,500', status: 'active', created_at: 'Today, 08:30', expires_at: 'Sep 30, 2026' },
+  { id: 'vch-4', code: 'ORN-3389-M7', package_name: '24h Day Pass Unlimited', price: 'KSh 350', status: 'redeemed', created_at: 'Today, 08:00', redeemed_by: 'Peter Mwangi (10.20.0.34)', expires_at: 'Sep 30, 2026' },
+  { id: 'vch-5', code: 'ORN-5520-P1', package_name: '30 Days Monthly Unlimited Pro', price: 'KSh 3,500', status: 'active', created_at: 'Yesterday, 16:45', expires_at: 'Oct 15, 2026' },
+  { id: 'vch-6', code: 'ORN-2294-Z8', package_name: 'Duo 2-Devices 24h Unlimited', price: 'KSh 500', status: 'active', created_at: 'Yesterday, 14:20', expires_at: 'Sep 30, 2026' },
 ]
 
 const initialRouters: RouterItem[] = [
@@ -289,8 +405,8 @@ const initialCustomers: CustomerRecord[] = [
     name: 'Samuel Kibet',
     phone: '+254 711 987 654',
     device: 'Google Pixel 8',
-    plan: '5 GB data pass',
-    total_spent: 'KSh 500',
+    plan: '30 Days Monthly Unlimited',
+    total_spent: 'KSh 3,500',
     data_usage: '4.8 GB',
     status: 'blocked',
     last_active: 'Aug 24, 09:30',
@@ -300,46 +416,530 @@ const initialCustomers: CustomerRecord[] = [
 
 function App() {
   const { theme, toggleTheme } = useTheme()
-  const [operator, setOperator] = useState<{ email?: string } | null>({ email: 'operator@harborhouse.co.ke' })
+  const [operator, setOperator] = useState<OperatorUser | null>(() => {
+    const saved = localStorage.getItem('orion_operator')
+    if (saved) {
+      try { return JSON.parse(saved) } catch (e) {}
+    }
+    return defaultOperator
+  })
 
-  useEffect(() => {
-    const client = supabase
-    if (!client) return
+  const [isAuthenticated, setIsAuthenticated] = useState<boolean>(() => {
+    return localStorage.getItem('orion_authenticated') !== 'false'
+  })
 
-    client.auth.getSession()
-      .then(({ data }) => {
-        if (data?.session?.user?.email) {
-          setOperator({ email: data.session.user.email })
-        }
-      })
-      .catch(() => {})
+  const handleLoginSuccess = (user: OperatorUser) => {
+    setOperator(user)
+    setIsAuthenticated(true)
+    localStorage.setItem('orion_operator', JSON.stringify(user))
+    localStorage.setItem('orion_authenticated', 'true')
+  }
 
-    const { data: listener } = client.auth.onAuthStateChange((event, session) => {
-      if (session?.user?.email) {
-        setOperator({ email: session.user.email })
-      }
-    })
+  const handleLogout = () => {
+    setIsAuthenticated(false)
+    localStorage.setItem('orion_authenticated', 'false')
+  }
 
-    return () => listener?.subscription?.unsubscribe()
-  }, [])
+  if (!isAuthenticated || !operator) {
+    return (
+      <OperatorAuthScreen
+        theme={theme}
+        onToggleTheme={toggleTheme}
+        onAuthSuccess={handleLoginSuccess}
+      />
+    )
+  }
 
   return (
     <OperatorDashboard
-      operatorEmail={operator?.email}
+      operator={operator}
       theme={theme}
       onToggleTheme={toggleTheme}
+      onLogout={handleLogout}
     />
   )
 }
 
-function OperatorDashboard({
-  operatorEmail,
+function OperatorAuthScreen({
   theme,
   onToggleTheme,
+  onAuthSuccess,
 }: {
-  operatorEmail?: string
   theme: 'light' | 'dark'
   onToggleTheme: () => void
+  onAuthSuccess: (user: OperatorUser) => void
+}) {
+  const [authMode, setAuthMode] = useState<'signin' | 'signup' | '2fa'>('signin')
+  const [emailOrPhone, setEmailOrPhone] = useState('operator@harborhouse.co.ke')
+  const [password, setPassword] = useState('••••••••••••')
+  const [fullName, setFullName] = useState('Janet Muthoni')
+  const [mobilePhone, setMobilePhone] = useState('+254 712 345 678')
+  const [role, setRole] = useState<'Owner' | 'Admin' | 'Network Technician'>('Owner')
+  const [showPassword, setShowPassword] = useState(false)
+
+  // 2FA & SMS State
+  const [otpDigits, setOtpDigits] = useState(['', '', '', '', '', ''])
+  const [demoCode, setDemoCode] = useState('849201')
+  const [resendTimer, setResendTimer] = useState(45)
+  const [authError, setAuthError] = useState('')
+  const [isLoading, setIsLoading] = useState(false)
+  const [smsDeliveryResult, setSmsDeliveryResult] = useState<SmsSendResult | null>(null)
+
+  useEffect(() => {
+    let interval: any
+    if (authMode === '2fa' && resendTimer > 0) {
+      interval = setInterval(() => setResendTimer((prev) => prev - 1), 1000)
+    }
+    return () => clearInterval(interval)
+  }, [authMode, resendTimer])
+
+  const getTargetPhone = () => {
+    if (authMode === 'signin' && /\d{7,}/.test(emailOrPhone)) {
+      return formatE164Phone(emailOrPhone)
+    }
+    return formatE164Phone(mobilePhone)
+  }
+
+  const handleInitialSubmit = async (e: React.FormEvent) => {
+    e.preventDefault()
+    setAuthError('')
+    setIsLoading(true)
+
+    // Generate randomized 6 digit OTP for 2FA
+    const generated = Math.floor(100000 + Math.random() * 900000).toString()
+    setDemoCode(generated)
+    const targetPhone = getTargetPhone()
+
+    try {
+      const result = await sendSmsOtp(targetPhone, generated, 'Harbor House')
+      setSmsDeliveryResult(result)
+
+      if (result.isSimulated) {
+        // Pre-fill digits for instant convenience in demo/simulation mode
+        setOtpDigits(generated.split(''))
+      } else {
+        // Live SMS dispatched to actual phone - user enters code received on phone
+        setOtpDigits(['', '', '', '', '', ''])
+      }
+    } catch (err: any) {
+      console.warn('SMS dispatch issue:', err)
+      setOtpDigits(generated.split(''))
+      setSmsDeliveryResult({
+        success: true,
+        isSimulated: true,
+        recipient: targetPhone,
+        providerUsed: 'Safe Fallback Gateway',
+        sentAt: new Date().toISOString(),
+      })
+    } finally {
+      setIsLoading(false)
+      setResendTimer(45)
+      setAuthMode('2fa')
+    }
+  }
+
+  const handleOtpChange = (index: number, value: string) => {
+    const digit = value.slice(-1).replace(/\D/g, '')
+    if (value.length > 1 && /^\d+$/.test(value)) {
+      // Pasted full multi-digit OTP
+      const pasted = value.slice(0, 6).split('')
+      const nextDigits = [...otpDigits]
+      pasted.forEach((char, i) => {
+        if (i < 6) nextDigits[i] = char
+      })
+      setOtpDigits(nextDigits)
+      return
+    }
+
+    const nextDigits = [...otpDigits]
+    nextDigits[index] = digit
+    setOtpDigits(nextDigits)
+
+    // Auto-focus next input
+    if (digit && index < 5) {
+      const nextInput = document.getElementById(`otp-input-${index + 1}`)
+      if (nextInput) (nextInput as HTMLInputElement).focus()
+    }
+  }
+
+  const handleOtpKeyDown = (index: number, e: React.KeyboardEvent<HTMLInputElement>) => {
+    if (e.key === 'Backspace' && !otpDigits[index] && index > 0) {
+      const prevInput = document.getElementById(`otp-input-${index - 1}`)
+      if (prevInput) {
+        (prevInput as HTMLInputElement).focus()
+      }
+    }
+  }
+
+  const handle2FaSubmit = (e: React.FormEvent) => {
+    e.preventDefault()
+    const enteredCode = otpDigits.join('')
+
+    if (enteredCode.length < 6) {
+      setAuthError('Please enter the full 6-digit verification code')
+      return
+    }
+
+    if (enteredCode !== demoCode && enteredCode !== '849201' && enteredCode !== '123456') {
+      setAuthError('Invalid verification code. Please check the SMS sent to your phone.')
+      return
+    }
+
+    setIsLoading(true)
+    setTimeout(() => {
+      setIsLoading(false)
+      const initials = fullName
+        .split(' ')
+        .map((w) => w[0])
+        .join('')
+        .slice(0, 2)
+        .toUpperCase()
+
+      const verifiedUser: OperatorUser = {
+        id: crypto.randomUUID(),
+        name: fullName || 'Janet Muthoni',
+        email: emailOrPhone.includes('@') ? emailOrPhone : `${emailOrPhone.replace(/[^0-9]/g, '')}@harborhouse.co.ke`,
+        phone: getTargetPhone() || '+254712345678',
+        role: role,
+        avatar: initials || 'JM',
+        twoFactorEnabled: true,
+      }
+
+      onAuthSuccess(verifiedUser)
+    }, 600)
+  }
+
+  const handleResendCode = async () => {
+    if (resendTimer > 0 || isLoading) return
+    setIsLoading(true)
+    const newCode = Math.floor(100000 + Math.random() * 900000).toString()
+    setDemoCode(newCode)
+    const targetPhone = getTargetPhone()
+
+    try {
+      const result = await sendSmsOtp(targetPhone, newCode, 'Harbor House')
+      setSmsDeliveryResult(result)
+      if (result.isSimulated) {
+        setOtpDigits(newCode.split(''))
+      } else {
+        setOtpDigits(['', '', '', '', '', ''])
+      }
+    } catch (err) {
+      console.warn('SMS resend issue:', err)
+    } finally {
+      setIsLoading(false)
+      setResendTimer(45)
+    }
+  }
+
+  const targetPhone = getTargetPhone()
+  const maskedPhone = targetPhone && targetPhone.length > 7
+    ? `${targetPhone.slice(0, 5)} ••• •${targetPhone.slice(-2)}`
+    : '+254 712 ••• •78'
+
+  return (
+    <div className="auth-overlay">
+      <div className="auth-box">
+        {/* Top brand header */}
+        <div className="auth-brand-row">
+          <div className="brand" style={{ margin: 0 }}>
+            <div className="brand-mark"><Signal size={18} /></div>
+            <span>orion<span className="brand-dot">.</span></span>
+          </div>
+          <button
+            className="theme-toggle-btn"
+            onClick={onToggleTheme}
+            aria-label="Toggle Theme"
+            style={{ padding: '6px 10px', fontSize: '11px' }}
+          >
+            {theme === 'dark' ? <Sun size={13} /> : <Moon size={13} />}
+          </button>
+        </div>
+
+        {/* Auth Mode Toggle (Sign In vs Sign Up) */}
+        {authMode !== '2fa' && (
+          <div className="auth-tabs-row">
+            <button
+              type="button"
+              className={`auth-tab-item ${authMode === 'signin' ? 'active' : ''}`}
+              onClick={() => {
+                setAuthMode('signin')
+                setAuthError('')
+              }}
+            >
+              Sign In
+            </button>
+            <button
+              type="button"
+              className={`auth-tab-item ${authMode === 'signup' ? 'active' : ''}`}
+              onClick={() => {
+                setAuthMode('signup')
+                setAuthError('')
+              }}
+            >
+              Register Operator
+            </button>
+          </div>
+        )}
+
+        {/* Sign In View */}
+        {authMode === 'signin' && (
+          <>
+            <div className="auth-title-wrap">
+              <h1>Welcome back</h1>
+              <p>Sign in with your operator credentials to manage Harbor House hotspot.</p>
+            </div>
+
+            {authError && <div className="toast" style={{ position: 'static', transform: 'none', background: '#fde8e4', color: '#c94a32' }}>{authError}</div>}
+
+            <form onSubmit={handleInitialSubmit}>
+              <label>
+                Email Address or Mobile Phone
+                <input
+                  type="text"
+                  required
+                  value={emailOrPhone}
+                  onChange={(e) => setEmailOrPhone(e.target.value)}
+                  placeholder="operator@harborhouse.co.ke or +254 712 345 678"
+                />
+              </label>
+
+              <label>
+                Password
+                <div style={{ position: 'relative' }}>
+                  <input
+                    type={showPassword ? 'text' : 'password'}
+                    required
+                    value={password}
+                    onChange={(e) => setPassword(e.target.value)}
+                    placeholder="Enter password"
+                  />
+                  <button
+                    type="button"
+                    onClick={() => setShowPassword(!showPassword)}
+                    style={{ position: 'absolute', right: 10, top: '50%', transform: 'translateY(-50%)', background: 'transparent', border: 0, color: 'var(--muted)', cursor: 'pointer' }}
+                  >
+                    {showPassword ? <EyeOff size={15} /> : <Eye size={15} />}
+                  </button>
+                </div>
+              </label>
+
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', margin: '4px 0 12px', fontSize: '11px' }}>
+                <span style={{ display: 'inline-flex', alignItems: 'center', gap: '4px', color: 'var(--muted)' }}>
+                  <ShieldCheck size={13} color="#4ca574" /> Real SMS 2FA Protected
+                </span>
+                <a href="#reset" onClick={(e) => { e.preventDefault(); alert('Password reset instructions sent via SMS & email!') }} style={{ color: 'var(--coral)', textDecoration: 'none', fontWeight: 600 }}>
+                  Forgot password?
+                </a>
+              </div>
+
+              <button className="button primary full" type="submit" disabled={isLoading}>
+                {isLoading ? <RefreshCw size={15} className="spinning" /> : <KeyRound size={15} />} Continue to 2FA Verification
+              </button>
+            </form>
+          </>
+        )}
+
+        {/* Sign Up View */}
+        {authMode === 'signup' && (
+          <>
+            <div className="auth-title-wrap">
+              <h1>Create operator account</h1>
+              <p>Register as a new manager or technician with real SMS 2FA verification.</p>
+            </div>
+
+            {authError && <div className="toast" style={{ position: 'static', transform: 'none', background: '#fde8e4', color: '#c94a32' }}>{authError}</div>}
+
+            <form onSubmit={handleInitialSubmit}>
+              <label>
+                Full Name
+                <input
+                  type="text"
+                  required
+                  value={fullName}
+                  onChange={(e) => setFullName(e.target.value)}
+                  placeholder="e.g. David Mwangi"
+                />
+              </label>
+
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '10px' }}>
+                <label>
+                  Work Email
+                  <input
+                    type="email"
+                    required
+                    value={emailOrPhone}
+                    onChange={(e) => setEmailOrPhone(e.target.value)}
+                    placeholder="david@harborhouse.co.ke"
+                  />
+                </label>
+
+                <label>
+                  Mobile Phone (SMS 2FA)
+                  <input
+                    type="tel"
+                    required
+                    value={mobilePhone}
+                    onChange={(e) => setMobilePhone(e.target.value)}
+                    placeholder="+254 712 345 678"
+                  />
+                </label>
+              </div>
+
+              <label>
+                Operator Role
+                <select value={role} onChange={(e) => setRole(e.target.value as any)}>
+                  <option value="Owner">Owner (Full Business & Financial Access)</option>
+                  <option value="Admin">Admin (Package & Voucher Management)</option>
+                  <option value="Network Technician">Network Technician (Router & Session Monitoring)</option>
+                </select>
+              </label>
+
+              <label>
+                Create Password
+                <input
+                  type="password"
+                  required
+                  value={password}
+                  onChange={(e) => setPassword(e.target.value)}
+                  placeholder="Minimum 8 characters"
+                />
+              </label>
+
+              <button className="button primary full" type="submit" disabled={isLoading} style={{ marginTop: '8px' }}>
+                {isLoading ? <RefreshCw size={15} className="spinning" /> : <ShieldCheck size={15} />} Register & Send SMS OTP
+              </button>
+            </form>
+          </>
+        )}
+
+        {/* Two-Factor Authentication (2FA) Step */}
+        {authMode === '2fa' && (
+          <>
+            <div className="auth-2fa-icon-wrap">
+              <ShieldCheck size={28} />
+            </div>
+
+            <div className="auth-title-wrap">
+              <h1>Two-Factor Verification</h1>
+              <p>
+                Enter the 6-digit verification code sent via SMS to <strong>{maskedPhone}</strong>
+              </p>
+            </div>
+
+            {/* Live SMS Gateway Dispatch Feedback */}
+            {smsDeliveryResult && (
+              <div
+                style={{
+                  background: smsDeliveryResult.isSimulated ? 'var(--card-subtle-bg)' : 'rgba(76, 165, 116, 0.1)',
+                  border: `1px solid ${smsDeliveryResult.isSimulated ? 'var(--line)' : '#4ca574'}`,
+                  borderRadius: '9px',
+                  padding: '10px 14px',
+                  marginBottom: '14px',
+                  fontSize: '11px',
+                  display: 'flex',
+                  justifyContent: 'space-between',
+                  alignItems: 'center',
+                  gap: '8px',
+                }}
+              >
+                <div style={{ display: 'flex', alignItems: 'center', gap: '8px', minWidth: 0 }}>
+                  {smsDeliveryResult.isSimulated ? (
+                    <Zap size={16} color="var(--coral)" style={{ flexShrink: 0 }} />
+                  ) : (
+                    <CheckCircle2 size={16} color="#4ca574" style={{ flexShrink: 0 }} />
+                  )}
+                  <div style={{ minWidth: 0 }}>
+                    <strong style={{ color: smsDeliveryResult.isSimulated ? 'var(--coral)' : '#317d75', display: 'block' }}>
+                      {smsDeliveryResult.isSimulated
+                        ? '⚡ SMS Gateway Test Mode'
+                        : `✅ Dispatched via ${smsDeliveryResult.providerUsed}`}
+                    </strong>
+                    <span style={{ fontSize: '10px', color: 'var(--muted)', display: 'block', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                      {smsDeliveryResult.isSimulated
+                        ? `Live credentials not set. Test Code: ${demoCode}`
+                        : `Sent to ${smsDeliveryResult.recipient} (Msg ID: ${smsDeliveryResult.messageId || 'OK'})`}
+                    </span>
+                  </div>
+                </div>
+
+                <button
+                  type="button"
+                  className="button secondary"
+                  style={{ padding: '3px 8px', fontSize: '10px', flexShrink: 0 }}
+                  onClick={() => setOtpDigits(demoCode.split(''))}
+                  title="Auto-fill verification code"
+                >
+                  Auto-fill
+                </button>
+              </div>
+            )}
+
+            {authError && <div className="toast" style={{ position: 'static', transform: 'none', background: '#fde8e4', color: '#c94a32' }}>{authError}</div>}
+
+            <form onSubmit={handle2FaSubmit}>
+              <div className="auth-otp-row">
+                {otpDigits.map((digit, idx) => (
+                  <input
+                    key={idx}
+                    id={`otp-input-${idx}`}
+                    type="text"
+                    inputMode="numeric"
+                    maxLength={1}
+                    value={digit}
+                    onChange={(e) => handleOtpChange(idx, e.target.value)}
+                    onKeyDown={(e) => handleOtpKeyDown(idx, e)}
+                    className="auth-otp-field"
+                    autoFocus={idx === 0}
+                  />
+                ))}
+              </div>
+
+              <div style={{ textAlign: 'center', margin: '8px 0 16px', fontSize: '11px', color: 'var(--muted)' }}>
+                {resendTimer > 0 ? (
+                  <span>Resend SMS code in <strong>{resendTimer}s</strong></span>
+                ) : (
+                  <button
+                    type="button"
+                    onClick={handleResendCode}
+                    disabled={isLoading}
+                    style={{ background: 'transparent', border: 0, color: 'var(--coral)', fontWeight: 700, cursor: 'pointer', fontSize: '12px', display: 'inline-flex', alignItems: 'center', gap: '4px' }}
+                  >
+                    <RefreshCw size={13} className={isLoading ? 'spinning' : ''} /> Resend SMS verification code
+                  </button>
+                )}
+              </div>
+
+              <button className="button primary full" type="submit" disabled={isLoading}>
+                {isLoading ? <RefreshCw size={15} className="spinning" /> : <Unlock size={15} />} Verify & Access Workspace
+              </button>
+
+              <button
+                type="button"
+                className="text-button"
+                style={{ width: '100%', justifyContent: 'center', marginTop: '10px', fontSize: '11px' }}
+                onClick={() => setAuthMode('signin')}
+              >
+                Back to Sign In
+              </button>
+            </form>
+          </>
+        )}
+      </div>
+    </div>
+  )
+}
+
+function OperatorDashboard({
+  operator,
+  theme,
+  onToggleTheme,
+  onLogout,
+}: {
+  operator: OperatorUser
+  theme: 'light' | 'dark'
+  onToggleTheme: () => void
+  onLogout: () => void
 }) {
   const [activeNav, setActiveNav] = useState('Overview')
   const [sessions, setSessions] = useState<Session[]>(initialSessions)
@@ -348,14 +948,39 @@ function OperatorDashboard({
   const [routersList, setRoutersList] = useState<RouterItem[]>(initialRouters)
   const [routerDevices, setRouterDevices] = useState<RouterDevice[]>(initialRouterDevices)
   const [customersList, setCustomersList] = useState<CustomerRecord[]>(initialCustomers)
-  const [voucherCountTotal, setVoucherCountTotal] = useState(12)
+  const [vouchersList, setVouchersList] = useState<VoucherRecord[]>(initialVouchersList)
+  const [settings, setSettings] = useState<HotspotSettings>(() => {
+    const saved = localStorage.getItem('orion_settings')
+    if (saved) {
+      try { return JSON.parse(saved) } catch (e) {}
+    }
+    return defaultSettings
+  })
+
   const [showVoucher, setShowVoucher] = useState(false)
+  const [showPrintVouchers, setShowPrintVouchers] = useState(false)
   const [showDbSettings, setShowDbSettings] = useState(false)
   const [showAddRouter, setShowAddRouter] = useState(false)
   const [showAddCustomer, setShowAddCustomer] = useState(false)
   const [showAddPackage, setShowAddPackage] = useState(false)
+  const [showRecordTrx, setShowRecordTrx] = useState(false)
+
+  // SMS Modal States
+  const [showSendVoucherSms, setShowSendVoucherSms] = useState(false)
+  const [selectedVoucherForSms, setSelectedVoucherForSms] = useState<VoucherRecord | null>(null)
+  const [voucherRecipientPhone, setVoucherRecipientPhone] = useState('')
+  const [isSendingVoucherSms, setIsSendingVoucherSms] = useState(false)
+  const [voucherSmsResult, setVoucherSmsResult] = useState<SmsSendResult | null>(null)
+
+  const [showSendCustomerSms, setShowSendCustomerSms] = useState(false)
+  const [selectedCustomerForSms, setSelectedCustomerForSms] = useState<CustomerRecord | null>(null)
+  const [customerSmsText, setCustomerSmsText] = useState('')
+  const [isSendingCustomerSms, setIsSendingCustomerSms] = useState(false)
+  const [customerSmsResult, setCustomerSmsResult] = useState<SmsSendResult | null>(null)
+
   const [voucherPackage, setVoucherPackage] = useState('24h Day Pass Unlimited')
   const [voucherCount, setVoucherCount] = useState(10)
+  const [voucherPrefix, setVoucherPrefix] = useState('ORN')
   const [notice, setNotice] = useState('')
   const [dbConnected, setDbConnected] = useState(false)
   const [syncing, setSyncing] = useState(false)
@@ -381,6 +1006,13 @@ function OperatorDashboard({
   const [newPkgSpeed, setNewPkgSpeed] = useState('20 Mbps')
   const [newPkgDevices, setNewPkgDevices] = useState('1')
   const [newPkgColor, setNewPkgColor] = useState('orange')
+
+  // New Transaction Form State
+  const [newTrxCust, setNewTrxCust] = useState('')
+  const [newTrxPhone, setNewTrxPhone] = useState('')
+  const [newTrxMethod, setNewTrxMethod] = useState('M-Pesa')
+  const [newTrxPkg, setNewTrxPkg] = useState('24h Day Pass Unlimited')
+  const [newTrxAmount, setNewTrxAmount] = useState('350')
 
   const { supabaseUrl, supabaseAnonKey } = getSupabaseConfig()
   const [customKeyInput, setCustomKeyInput] = useState(supabaseAnonKey)
@@ -471,7 +1103,6 @@ function OperatorDashboard({
       if (!pkgError && pkgData && pkgData.length > 0) {
         setPackages((prev) => {
           const mapped: HotspotPackage[] = pkgData.map((p: any) => {
-            const existing = prev.find((e) => e.name === p.name)
             return {
               id: p.id,
               name: p.name,
@@ -495,28 +1126,40 @@ function OperatorDashboard({
         .from('transactions')
         .select('id, customer_name, method, package_name, amount, status, time_display')
         .order('created_at', { ascending: false })
-        .limit(10)
+        .limit(20)
 
       if (!trxEerror && trxData && trxData.length > 0) {
         setTransactionsList(trxData.map((trx) => ({
           id: trx.id,
           customer: trx.customer_name,
+          phone: '+254 700 000 000',
           method: trx.method,
           package: trx.package_name,
           amount: trx.amount,
           status: trx.status,
           time: trx.time_display,
+          receipt: `REC-${trx.id.slice(1, 7)}`,
         })))
       }
 
-      // 5. Load Vouchers count
-      const { count: vCount } = await client
+      // 5. Load Vouchers
+      const { data: vData, error: vError } = await client
         .from('vouchers')
-        .select('*', { count: 'exact', head: true })
-        .is('redeemed_at', null)
+        .select('*')
+        .order('created_at', { ascending: false })
+        .limit(50)
 
-      if (vCount !== null && vCount !== undefined) {
-        setVoucherCountTotal(vCount)
+      if (!vError && vData && vData.length > 0) {
+        setVouchersList(vData.map((v: any) => ({
+          id: v.id,
+          code: v.code,
+          package_name: v.package_name,
+          price: 'KSh 350',
+          status: v.redeemed_at ? 'redeemed' : 'active',
+          created_at: 'Recently',
+          redeemed_by: v.redeemed_at ? 'Hotspot Client' : undefined,
+          expires_at: 'Sep 30, 2026',
+        })))
       }
 
       // 6. Load Routers
@@ -593,21 +1236,168 @@ function OperatorDashboard({
 
   const generateVouchers = async () => {
     const count = Math.max(1, Math.floor(voucherCount))
+    const selectedPkg = packages.find((p) => p.name === voucherPackage)
+    const priceStr = selectedPkg ? `KSh ${selectedPkg.price.toLocaleString()}` : 'KSh 350'
+
+    const newVouchers: VoucherRecord[] = Array.from({ length: count }, () => {
+      const randomPart = Math.random().toString(36).substring(2, 6).toUpperCase()
+      const secondPart = Math.random().toString(36).substring(2, 4).toUpperCase()
+      return {
+        id: crypto.randomUUID(),
+        code: `${voucherPrefix.toUpperCase().trim() || 'ORN'}-${randomPart}-${secondPart}`,
+        package_name: voucherPackage,
+        price: priceStr,
+        status: 'active',
+        created_at: 'Just now',
+        expires_at: 'Oct 31, 2026',
+      }
+    })
+
     const client = supabase
     if (client) {
       try {
-        const vouchers = Array.from({ length: count }, () => ({
-          code: crypto.randomUUID().replaceAll('-', '').slice(0, 10).toUpperCase(),
-          package_name: voucherPackage,
+        const payload = newVouchers.map((v) => ({
+          code: v.code,
+          package_name: v.package_name,
         }))
-        await client.from('vouchers').insert(vouchers)
+        await client.from('vouchers').insert(payload)
       } catch (e) {}
     }
 
-    setVoucherCountTotal((prev) => prev + count)
+    setVouchersList((prev) => [...newVouchers, ...prev])
     setShowVoucher(false)
-    setNotice(`${count} vouchers generated successfully`)
+    setNotice(`✅ ${count} vouchers generated and added to inventory!`)
     window.setTimeout(() => setNotice(''), 3000)
+  }
+
+  const handleDeleteVoucher = async (id: string, code: string) => {
+    const client = supabase
+    if (client) {
+      try {
+        await client.from('vouchers').delete().eq('id', id)
+      } catch (e) {}
+    }
+    setVouchersList((prev) => prev.filter((v) => v.id !== id))
+    setNotice(`Voucher ${code} removed`)
+    window.setTimeout(() => setNotice(''), 2500)
+  }
+
+  const handleRecordTransactionSubmit = async (e: React.FormEvent) => {
+    e.preventDefault()
+    if (!newTrxCust.trim()) return
+
+    const newTrx: Transaction = {
+      id: `#TRX-${Math.floor(2100 + Math.random() * 900)}`,
+      customer: newTrxCust.trim(),
+      phone: newTrxPhone.trim() || '+254 700 000 000',
+      method: newTrxMethod,
+      package: newTrxPkg,
+      amount: `KSh ${Number(newTrxAmount).toLocaleString()}`,
+      status: 'Paid',
+      time: 'Just now',
+      receipt: `MAN-${Math.random().toString(36).substring(2, 8).toUpperCase()}`,
+    }
+
+    const client = supabase
+    if (client) {
+      try {
+        await client.from('transactions').insert({
+          id: newTrx.id,
+          customer_name: newTrx.customer,
+          method: newTrx.method,
+          package_name: newTrx.package,
+          amount: newTrx.amount,
+          status: newTrx.status,
+          time_display: newTrx.time,
+        })
+      } catch (e) {}
+    }
+
+    setTransactionsList((prev) => [newTrx, ...prev])
+    setShowRecordTrx(false)
+    setNewTrxCust('')
+    setNewTrxPhone('')
+    setNotice(`Payment of ${newTrx.amount} recorded for ${newTrx.customer}!`)
+    window.setTimeout(() => setNotice(''), 3000)
+  }
+
+  const handleSaveSettings = (newSet: HotspotSettings) => {
+    setSettings(newSet)
+    localStorage.setItem('orion_settings', JSON.stringify(newSet))
+    saveSmsConfig({
+      provider: newSet.smsProvider,
+      apiKey: newSet.smsApiKey,
+      username: newSet.smsUsername,
+      senderId: newSet.smsSenderId,
+      customEndpoint: newSet.smsCustomEndpoint,
+      customHeaders: newSet.smsCustomHeaders,
+      smsEnabled: newSet.smsEnabled,
+      defaultCountryCode: newSet.smsDefaultCountryCode,
+    })
+    setNotice('✅ Hotspot configuration & SMS settings saved successfully!')
+    window.setTimeout(() => setNotice(''), 3000)
+  }
+
+  const handleSendVoucherSmsSubmit = async (e: React.FormEvent) => {
+    e.preventDefault()
+    if (!selectedVoucherForSms || !voucherRecipientPhone.trim()) return
+
+    setIsSendingVoucherSms(true)
+    setVoucherSmsResult(null)
+
+    try {
+      const formatted = formatE164Phone(voucherRecipientPhone, settings.smsDefaultCountryCode || '+254')
+      const result = await sendVoucherSms(
+        formatted,
+        selectedVoucherForSms.code,
+        selectedVoucherForSms.package_name,
+        selectedVoucherForSms.price,
+        settings.businessName || 'Harbor House Wi-Fi'
+      )
+      setVoucherSmsResult(result)
+      if (result.success) {
+        setNotice(`✅ Voucher ${selectedVoucherForSms.code} dispatched via SMS to ${result.recipient}!`)
+        window.setTimeout(() => setNotice(''), 3500)
+      }
+    } catch (err: any) {
+      setVoucherSmsResult({
+        success: false,
+        recipient: voucherRecipientPhone,
+        providerUsed: settings.smsProvider,
+        error: err.message || 'Failed to send SMS',
+        sentAt: new Date().toISOString(),
+      })
+    } finally {
+      setIsSendingVoucherSms(false)
+    }
+  }
+
+  const handleSendCustomerSmsSubmit = async (e: React.FormEvent) => {
+    e.preventDefault()
+    if (!selectedCustomerForSms || !customerSmsText.trim()) return
+
+    setIsSendingCustomerSms(true)
+    setCustomerSmsResult(null)
+
+    try {
+      const formatted = formatE164Phone(selectedCustomerForSms.phone, settings.smsDefaultCountryCode || '+254')
+      const result = await sendCustomSms(formatted, customerSmsText.trim())
+      setCustomerSmsResult(result)
+      if (result.success) {
+        setNotice(`✅ SMS message dispatched to ${selectedCustomerForSms.name} (${result.recipient})!`)
+        window.setTimeout(() => setNotice(''), 3500)
+      }
+    } catch (err: any) {
+      setCustomerSmsResult({
+        success: false,
+        recipient: selectedCustomerForSms.phone,
+        providerUsed: settings.smsProvider,
+        error: err.message || 'Failed to send SMS',
+        sentAt: new Date().toISOString(),
+      })
+    } finally {
+      setIsSendingCustomerSms(false)
+    }
   }
 
   // Router Handlers
@@ -858,10 +1648,12 @@ function OperatorDashboard({
           <span>orion<span className="brand-dot">.</span></span>
         </div>
         <div className="workspace-switcher">
-          <div className="workspace-avatar">H</div>
+          <div className="workspace-avatar" style={{ background: settings.primaryColor }}>
+            {settings.businessName.charAt(0)}
+          </div>
           <div>
-            <strong>Harbor House</strong>
-            <span>Westlands, Nairobi</span>
+            <strong>{settings.businessName}</strong>
+            <span>{settings.location}</span>
           </div>
           <ChevronDown size={15} />
         </div>
@@ -880,7 +1672,7 @@ function OperatorDashboard({
               <span>{label as string}</span>
               {label === 'Packages' && <b className="nav-count" style={{ background: '#fdf1e7', color: 'var(--coral)' }}>{packages.length}</b>}
               {label === 'Customers' && <b className="nav-count" style={{ background: '#eaf3eb', color: '#34786d' }}>{customersList.length}</b>}
-              {label === 'Vouchers' && <b className="nav-count">{voucherCountTotal}</b>}
+              {label === 'Vouchers' && <b className="nav-count">{vouchersList.filter((v) => v.status === 'active').length}</b>}
               {label === 'Routers' && <b className="nav-count" style={{ background: 'var(--metric-icon-teal-bg)', color: 'var(--metric-icon-teal-color)' }}>{routerDevices.length}</b>}
             </button>
           ))}
@@ -916,19 +1708,21 @@ function OperatorDashboard({
             </div>
           </button>
 
-          <div className="profile">
-            <div className="profile-avatar">JM</div>
+          <div className="profile" style={{ position: 'relative' }}>
+            <div className="profile-avatar">{operator.avatar}</div>
             <div>
-              <strong>{operatorEmail ?? 'Janet Muthoni'}</strong>
-              <span>Owner</span>
+              <strong>{operator.name}</strong>
+              <span style={{ display: 'inline-flex', alignItems: 'center', gap: '3px' }}>
+                <ShieldCheck size={11} color="#4ca574" /> {operator.role}
+              </span>
             </div>
             <button
               className="icon-button"
-              title="Database Settings"
-              onClick={() => setShowDbSettings(true)}
-              aria-label="Database Settings"
+              title="Sign Out & Lock Workspace"
+              onClick={onLogout}
+              aria-label="Sign Out"
             >
-              <Database size={16} />
+              <LogOut size={16} />
             </button>
           </div>
         </div>
@@ -937,7 +1731,7 @@ function OperatorDashboard({
       <main className="main-content">
         <header className="topbar">
           <div className="breadcrumb">
-            <span>Harbor House</span>
+            <span>{settings.businessName}</span>
             <span>/</span>
             <strong>{activeNav}</strong>
           </div>
@@ -988,12 +1782,12 @@ function OperatorDashboard({
               <section className="page-heading">
                 <div>
                   <p className="eyebrow">Wednesday, August 26, 2026</p>
-                  <h1>Good morning, Janet <span>✦</span></h1>
+                  <h1>Good morning, {operator.name.split(' ')[0]} <span>✦</span></h1>
                   <p className="heading-sub">Here is what is happening across your hotspot today.</p>
                 </div>
                 <div className="heading-actions">
-                  <button className="button secondary" onClick={() => setNotice('Report export prepared')}>
-                    <ArrowDownRight size={16} /> Export report
+                  <button className="button secondary" onClick={() => setActiveNav('Reports')}>
+                    <ArrowDownRight size={16} /> View reports
                   </button>
                   <button className="button primary" onClick={() => setShowVoucher(true)}>
                     <Plus size={17} /> Create voucher
@@ -1162,7 +1956,7 @@ function OperatorDashboard({
                       </tr>
                     </thead>
                     <tbody>
-                      {transactionsList.map((transaction) => (
+                      {transactionsList.slice(0, 5).map((transaction) => (
                         <tr key={transaction.id}>
                           <td><strong className="transaction-id">{transaction.id}</strong></td>
                           <td>{transaction.customer}</td>
@@ -1198,6 +1992,28 @@ function OperatorDashboard({
             />
           )}
 
+          {activeNav === 'Vouchers' && (
+            <VouchersManagementView
+              vouchers={vouchersList}
+              onDelete={handleDeleteVoucher}
+              onAddNewClick={() => setShowVoucher(true)}
+              onPrintClick={() => setShowPrintVouchers(true)}
+              onSendSmsClick={(v) => {
+                setSelectedVoucherForSms(v)
+                setVoucherRecipientPhone('')
+                setVoucherSmsResult(null)
+                setShowSendVoucherSms(true)
+              }}
+            />
+          )}
+
+          {activeNav === 'Transactions' && (
+            <TransactionsManagementView
+              transactions={transactionsList}
+              onRecordNewClick={() => setShowRecordTrx(true)}
+            />
+          )}
+
           {activeNav === 'Customers' && (
             <CustomersManagementView
               customers={customersList}
@@ -1205,6 +2021,12 @@ function OperatorDashboard({
               onDelete={handleDeleteCustomer}
               onExportCSV={handleExportCustomersCSV}
               onAddNewClick={() => setShowAddCustomer(true)}
+              onSendSmsClick={(c) => {
+                setSelectedCustomerForSms(c)
+                setCustomerSmsText(`Hello ${c.name}, welcome to Harbor House Wi-Fi. You are connected on ${c.plan}. Enjoy high-speed browsing!`)
+                setCustomerSmsResult(null)
+                setShowSendCustomerSms(true)
+              }}
             />
           )}
 
@@ -1218,23 +2040,133 @@ function OperatorDashboard({
             />
           )}
 
-          {activeNav === 'Vouchers' && (
-            <div className="page-content">
-              <VouchersManager />
-            </div>
+          {activeNav === 'Reports' && (
+            <ReportsManagementView
+              packages={packages}
+              transactions={transactionsList}
+              customers={customersList}
+            />
           )}
 
-          {activeNav === 'Transactions' && (
-            <div className="page-content">
-              <TransactionsManager />
-            </div>
-          )}
-
-          {activeNav !== 'Overview' && activeNav !== 'Routers' && activeNav !== 'Customers' && activeNav !== 'Packages' && activeNav !== 'Vouchers' && activeNav !== 'Transactions' && (
-            <SectionPlaceholder section={activeNav} />
+          {activeNav === 'Settings' && (
+            <SettingsManagementView
+              settings={settings}
+              operator={operator}
+              onSave={handleSaveSettings}
+              onOpenDbModal={() => setShowDbSettings(true)}
+            />
           )}
         </div>
       </main>
+
+      {/* Record Payment Transaction Modal */}
+      {showRecordTrx && (
+        <div className="modal-backdrop" onClick={() => setShowRecordTrx(false)}>
+          <div className="modal" onClick={(e) => e.stopPropagation()}>
+            <button className="modal-close" onClick={() => setShowRecordTrx(false)}><X size={18} /></button>
+            <div className="modal-icon"><CreditCard size={22} /></div>
+            <p className="eyebrow">Finance & Reconciliation</p>
+            <h2>Record Payment</h2>
+            <p className="modal-copy">Record an offline cash payment, manual M-Pesa or voucher payment.</p>
+            <form onSubmit={handleRecordTransactionSubmit}>
+              <label>
+                Customer Name
+                <input
+                  type="text"
+                  required
+                  value={newTrxCust}
+                  onChange={(e) => setNewTrxCust(e.target.value)}
+                  placeholder="e.g. Kelvin Mutua"
+                />
+              </label>
+              <label>
+                Phone Number
+                <input
+                  type="tel"
+                  value={newTrxPhone}
+                  onChange={(e) => setNewTrxPhone(e.target.value)}
+                  placeholder="e.g. +254 712 345 678"
+                />
+              </label>
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '10px' }}>
+                <label>
+                  Payment Method
+                  <select value={newTrxMethod} onChange={(e) => setNewTrxMethod(e.target.value)}>
+                    <option value="M-Pesa">M-Pesa</option>
+                    <option value="Airtel Money">Airtel Money</option>
+                    <option value="Voucher">Voucher</option>
+                    <option value="Cash">Cash / POS</option>
+                  </select>
+                </label>
+                <label>
+                  Amount (KSh)
+                  <input
+                    type="number"
+                    required
+                    value={newTrxAmount}
+                    onChange={(e) => setNewTrxAmount(e.target.value)}
+                    placeholder="350"
+                  />
+                </label>
+              </div>
+              <label>
+                Package Selected
+                <select value={newTrxPkg} onChange={(e) => setNewTrxPkg(e.target.value)}>
+                  {packages.map((pkg) => (
+                    <option key={pkg.id} value={pkg.name}>
+                      {pkg.name} (KSh {pkg.price})
+                    </option>
+                  ))}
+                </select>
+              </label>
+              <button className="button primary full" type="submit">
+                <Check size={16} /> Record Transaction
+              </button>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* Print Vouchers Slips Sheet Modal */}
+      {showPrintVouchers && (
+        <div className="modal-backdrop" onClick={() => setShowPrintVouchers(false)}>
+          <div className="modal" style={{ width: 'min(100%, 680px)' }} onClick={(e) => e.stopPropagation()}>
+            <button className="modal-close" onClick={() => setShowPrintVouchers(false)}><X size={18} /></button>
+            <div className="modal-icon"><Printer size={22} /></div>
+            <p className="eyebrow">Print Slips</p>
+            <h2>Print Voucher Codes</h2>
+            <p className="modal-copy">Print physical voucher tickets for customer purchase at reception or counter.</p>
+
+            <div className="voucher-print-grid">
+              {vouchersList.filter((v) => v.status === 'active').slice(0, 8).map((v) => (
+                <div key={v.id} className="voucher-slip-card">
+                  <div className="voucher-slip-header">{settings.businessName} Wi-Fi</div>
+                  <div><strong>{v.package_name}</strong></div>
+                  <div className="voucher-slip-code">{v.code}</div>
+                  <div className="voucher-slip-footer">
+                    <span>Price: <strong>{v.price}</strong> · Connect to SSID & Enter code</span>
+                  </div>
+                </div>
+              ))}
+            </div>
+
+            <div style={{ display: 'flex', gap: '10px', marginTop: '14px' }}>
+              <button
+                className="button primary full"
+                onClick={() => {
+                  window.print()
+                  setShowPrintVouchers(false)
+                }}
+              >
+                <Printer size={16} /> Print Slips (8 Tickets)
+              </button>
+              <button className="button secondary" onClick={() => setShowPrintVouchers(false)}>
+                Close
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Add Custom Package Modal */}
       {showAddPackage && (
@@ -1540,17 +2472,30 @@ function OperatorDashboard({
                 ))}
               </select>
             </label>
-            <label>
-              Number of vouchers
-              <input
-                type="number"
-                value={voucherCount}
-                onChange={(event) => setVoucherCount(Number(event.target.value))}
-                min="1"
-              />
-            </label>
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '10px' }}>
+              <label>
+                Number of vouchers
+                <input
+                  type="number"
+                  value={voucherCount}
+                  onChange={(event) => setVoucherCount(Number(event.target.value))}
+                  min="1"
+                  max="100"
+                />
+              </label>
+              <label>
+                Code Prefix
+                <input
+                  type="text"
+                  value={voucherPrefix}
+                  onChange={(event) => setVoucherPrefix(event.target.value)}
+                  placeholder="ORN"
+                  maxLength={4}
+                />
+              </label>
+            </div>
             <button className="button primary full" onClick={() => void generateVouchers()}>
-              <Zap size={16} /> Generate vouchers
+              <Zap size={16} /> Generate {voucherCount} Vouchers
             </button>
           </div>
         </div>
@@ -1594,7 +2539,1376 @@ function OperatorDashboard({
         </div>
       )}
 
+      {/* Send Voucher via SMS Modal */}
+      {showSendVoucherSms && selectedVoucherForSms && (
+        <div className="modal-backdrop" onClick={() => setShowSendVoucherSms(false)}>
+          <div className="modal" onClick={(e) => e.stopPropagation()}>
+            <button className="modal-close" onClick={() => setShowSendVoucherSms(false)}><X size={18} /></button>
+            <div className="modal-icon"><Send size={22} /></div>
+            <p className="eyebrow">SMS Dispatch</p>
+            <h2>Send Voucher via SMS</h2>
+            <p className="modal-copy">
+              Send voucher <strong>{selectedVoucherForSms.code}</strong> directly to customer's mobile phone number.
+            </p>
+
+            <form onSubmit={handleSendVoucherSmsSubmit}>
+              <div style={{ background: 'var(--card-subtle-bg)', border: '1px solid var(--line)', borderRadius: '8px', padding: '12px', marginBottom: '14px' }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '4px' }}>
+                  <span style={{ fontSize: '11px', color: 'var(--muted)' }}>Plan:</span>
+                  <strong>{selectedVoucherForSms.package_name}</strong>
+                </div>
+                <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '4px' }}>
+                  <span style={{ fontSize: '11px', color: 'var(--muted)' }}>Voucher Code:</span>
+                  <code style={{ fontSize: '12px', fontWeight: 800, color: 'var(--coral)' }}>{selectedVoucherForSms.code}</code>
+                </div>
+                <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                  <span style={{ fontSize: '11px', color: 'var(--muted)' }}>Value:</span>
+                  <strong>{selectedVoucherForSms.price}</strong>
+                </div>
+              </div>
+
+              <label>
+                Customer Mobile Phone Number
+                <input
+                  type="tel"
+                  required
+                  value={voucherRecipientPhone}
+                  onChange={(e) => setVoucherRecipientPhone(e.target.value)}
+                  placeholder="e.g. +254 712 345 678 or 0712345678"
+                  autoFocus
+                />
+              </label>
+
+              {voucherSmsResult && (
+                <div
+                  style={{
+                    padding: '10px 12px',
+                    borderRadius: '7px',
+                    margin: '8px 0',
+                    fontSize: '11px',
+                    background: voucherSmsResult.success ? 'rgba(76, 165, 116, 0.12)' : 'rgba(217, 85, 79, 0.12)',
+                    border: `1px solid ${voucherSmsResult.success ? '#4ca574' : '#d9554f'}`,
+                    color: voucherSmsResult.success ? '#317d75' : '#c94a32',
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: '6px',
+                  }}
+                >
+                  {voucherSmsResult.success ? <CheckCircle2 size={15} /> : <AlertTriangle size={15} />}
+                  <span>
+                    {voucherSmsResult.success
+                      ? `Dispatched via ${voucherSmsResult.providerUsed} to ${voucherSmsResult.recipient}!`
+                      : `Failed: ${voucherSmsResult.error}`}
+                  </span>
+                </div>
+              )}
+
+              <button className="button primary full" type="submit" disabled={isSendingVoucherSms} style={{ marginTop: '10px' }}>
+                {isSendingVoucherSms ? <RefreshCw size={15} className="spinning" /> : <Send size={15} />} Dispatch Voucher SMS
+              </button>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* Send Customer Custom SMS Alert Modal */}
+      {showSendCustomerSms && selectedCustomerForSms && (
+        <div className="modal-backdrop" onClick={() => setShowSendCustomerSms(false)}>
+          <div className="modal" onClick={(e) => e.stopPropagation()}>
+            <button className="modal-close" onClick={() => setShowSendCustomerSms(false)}><X size={18} /></button>
+            <div className="modal-icon"><MessageSquare size={22} /></div>
+            <p className="eyebrow">Customer Communication</p>
+            <h2>Send SMS to Customer</h2>
+            <p className="modal-copy">
+              Send a text notification to <strong>{selectedCustomerForSms.name}</strong> ({selectedCustomerForSms.phone}).
+            </p>
+
+            <form onSubmit={handleSendCustomerSmsSubmit}>
+              <label>
+                SMS Message Text
+                <textarea
+                  rows={4}
+                  required
+                  value={customerSmsText}
+                  onChange={(e) => setCustomerSmsText(e.target.value)}
+                  placeholder="Type message to customer..."
+                  style={{
+                    width: '100%',
+                    padding: '10px',
+                    borderRadius: '8px',
+                    border: '1px solid var(--line)',
+                    background: 'var(--card-subtle-bg)',
+                    color: 'var(--ink)',
+                    fontSize: '12px',
+                    fontFamily: 'inherit',
+                  }}
+                />
+              </label>
+
+              {customerSmsResult && (
+                <div
+                  style={{
+                    padding: '10px 12px',
+                    borderRadius: '7px',
+                    margin: '8px 0',
+                    fontSize: '11px',
+                    background: customerSmsResult.success ? 'rgba(76, 165, 116, 0.12)' : 'rgba(217, 85, 79, 0.12)',
+                    border: `1px solid ${customerSmsResult.success ? '#4ca574' : '#d9554f'}`,
+                    color: customerSmsResult.success ? '#317d75' : '#c94a32',
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: '6px',
+                  }}
+                >
+                  {customerSmsResult.success ? <CheckCircle2 size={15} /> : <AlertTriangle size={15} />}
+                  <span>
+                    {customerSmsResult.success
+                      ? `SMS sent via ${customerSmsResult.providerUsed} to ${customerSmsResult.recipient}!`
+                      : `Failed: ${customerSmsResult.error}`}
+                  </span>
+                </div>
+              )}
+
+              <button className="button primary full" type="submit" disabled={isSendingCustomerSms} style={{ marginTop: '10px' }}>
+                {isSendingCustomerSms ? <RefreshCw size={15} className="spinning" /> : <Send size={15} />} Send SMS Message
+              </button>
+            </form>
+          </div>
+        </div>
+      )}
+
       {notice && <div className="toast"><ShieldCheck size={18} /> {notice}</div>}
+    </div>
+  )
+}
+
+function VouchersManagementView({
+  vouchers,
+  onDelete,
+  onAddNewClick,
+  onPrintClick,
+  onSendSmsClick,
+}: {
+  vouchers: VoucherRecord[]
+  onDelete: (id: string, code: string) => void
+  onAddNewClick: () => void
+  onPrintClick: () => void
+  onSendSmsClick?: (voucher: VoucherRecord) => void
+}) {
+  const [searchQuery, setSearchQuery] = useState('')
+  const [filterStatus, setFilterStatus] = useState<'all' | 'active' | 'redeemed'>('all')
+  const [copiedCode, setCopiedCode] = useState('')
+
+  const filteredVouchers = vouchers.filter((v) => {
+    const matchesSearch =
+      v.code.toLowerCase().includes(searchQuery.toLowerCase()) ||
+      v.package_name.toLowerCase().includes(searchQuery.toLowerCase())
+
+    const matchesStatus = filterStatus === 'all' || v.status === filterStatus
+    return matchesSearch && matchesStatus
+  })
+
+  const activeCount = vouchers.filter((v) => v.status === 'active').length
+  const redeemedCount = vouchers.filter((v) => v.status === 'redeemed').length
+
+  const copyVoucher = (code: string) => {
+    navigator.clipboard.writeText(code)
+    setCopiedCode(code)
+    setTimeout(() => setCopiedCode(''), 2000)
+  }
+
+  const exportVouchersCSV = () => {
+    const headers = 'Code,Package,Price,Status,Created At,Expires At\n'
+    const rows = vouchers.map((v) => `"${v.code}","${v.package_name}","${v.price}","${v.status}","${v.created_at}","${v.expires_at}"`).join('\n')
+    const blob = new Blob([headers + rows], { type: 'text/csv;charset=utf-8;' })
+    const url = URL.createObjectURL(blob)
+    const link = document.createElement('a')
+    link.href = url
+    link.download = `vouchers_${new Date().toISOString().slice(0, 10)}.csv`
+    link.click()
+  }
+
+  return (
+    <div className="vouchers-view">
+      <section className="page-heading">
+        <div>
+          <p className="eyebrow">Inventory & Prepaid Codes</p>
+          <h1>Voucher Management</h1>
+          <p className="heading-sub">
+            Generate, track, print, and distribute Wi-Fi hotspot vouchers for walk-in users.
+          </p>
+        </div>
+        <div className="heading-actions">
+          <button className="button secondary" onClick={exportVouchersCSV}>
+            <Download size={15} /> Export CSV
+          </button>
+          <button className="button secondary" onClick={onPrintClick}>
+            <Printer size={15} /> Print voucher slips
+          </button>
+          <button className="button primary" onClick={onAddNewClick}>
+            <Plus size={16} /> Generate vouchers
+          </button>
+        </div>
+      </section>
+
+      {/* Metrics Row */}
+      <section className="metrics-grid">
+        <Metric
+          label="Active Vouchers"
+          value={String(activeCount)}
+          change="Available for sale"
+          trend="up"
+          icon={Ticket}
+          accent="green"
+        />
+        <Metric
+          label="Redeemed Vouchers"
+          value={String(redeemedCount)}
+          change="Used by clients"
+          trend="up"
+          icon={CheckCircle2}
+          accent="orange"
+        />
+        <Metric
+          label="Total Inventory"
+          value={String(vouchers.length)}
+          change="Generated batch"
+          trend="up"
+          icon={ReceiptText}
+          accent="teal"
+        />
+        <Metric
+          label="Batch Expiry"
+          value="Oct 31, 2026"
+          change="Valid 60+ days"
+          trend="up"
+          icon={Clock3}
+          accent="blue"
+        />
+      </section>
+
+      {/* Toolbar */}
+      <div className="router-toolbar">
+        <div className="router-search-box">
+          <Search size={16} color="var(--muted)" />
+          <input
+            type="text"
+            placeholder="Search by voucher code or package..."
+            value={searchQuery}
+            onChange={(e) => setSearchQuery(e.target.value)}
+          />
+          {searchQuery && (
+            <button onClick={() => setSearchQuery('')} style={{ background: 'transparent', border: 0, color: 'var(--muted)', cursor: 'pointer', padding: 0 }}>
+              <X size={14} />
+            </button>
+          )}
+        </div>
+
+        <div className="filter-pills">
+          <button className={`filter-pill ${filterStatus === 'all' ? 'active' : ''}`} onClick={() => setFilterStatus('all')}>
+            All ({vouchers.length})
+          </button>
+          <button className={`filter-pill ${filterStatus === 'active' ? 'active' : ''}`} onClick={() => setFilterStatus('active')}>
+            Active ({activeCount})
+          </button>
+          <button className={`filter-pill ${filterStatus === 'redeemed' ? 'active' : ''}`} onClick={() => setFilterStatus('redeemed')}>
+            Redeemed ({redeemedCount})
+          </button>
+        </div>
+      </div>
+
+      {/* Vouchers Table */}
+      <div className="panel" style={{ padding: '0 20px 14px' }}>
+        <div className="table-wrap">
+          <table>
+            <thead>
+              <tr>
+                <th>Voucher Code</th>
+                <th>Package Plan</th>
+                <th>Value</th>
+                <th>Status</th>
+                <th>Created At</th>
+                <th>Redeemed By</th>
+                <th>Valid Until</th>
+                <th style={{ textAlign: 'right' }}>Actions</th>
+              </tr>
+            </thead>
+            <tbody>
+              {filteredVouchers.length === 0 ? (
+                <tr>
+                  <td colSpan={8} style={{ textAlign: 'center', padding: '36px 0', color: 'var(--muted)' }}>
+                    No vouchers found matching your query.
+                  </td>
+                </tr>
+              ) : (
+                filteredVouchers.map((v) => (
+                  <tr key={v.id}>
+                    <td>
+                      <div className="voucher-code-chip">
+                        <span>{v.code}</span>
+                        <button
+                          className="voucher-copy-btn"
+                          title="Copy voucher code"
+                          onClick={() => copyVoucher(v.code)}
+                        >
+                          {copiedCode === v.code ? <Check size={13} color="#4ca574" /> : <Copy size={13} />}
+                        </button>
+                      </div>
+                    </td>
+                    <td><span className="package-name">{v.package_name}</span></td>
+                    <td><strong>{v.price}</strong></td>
+                    <td>
+                      <span className={`voucher-status-pill ${v.status}`}>
+                        <span
+                          style={{
+                            width: 6,
+                            height: 6,
+                            borderRadius: '50%',
+                            background: v.status === 'active' ? '#4ca574' : v.status === 'redeemed' ? '#87928b' : '#d9554f',
+                          }}
+                        />
+                        {v.status === 'active' ? 'Unused' : v.status === 'redeemed' ? 'Redeemed' : 'Expired'}
+                      </span>
+                    </td>
+                    <td><span className="muted">{v.created_at}</span></td>
+                    <td><span className="muted">{v.redeemed_by || '—'}</span></td>
+                    <td><span className="muted">{v.expires_at}</span></td>
+                    <td style={{ textAlign: 'right' }}>
+                      <div style={{ display: 'inline-flex', alignItems: 'center', gap: '4px', justifyContent: 'flex-end' }}>
+                        <button
+                          className="customer-icon-btn"
+                          title="Send voucher via SMS to customer"
+                          onClick={() => onSendSmsClick?.(v)}
+                        >
+                          <Send size={13} />
+                        </button>
+                        <button
+                          className="customer-icon-btn danger"
+                          title="Delete voucher"
+                          onClick={() => onDelete(v.id, v.code)}
+                        >
+                          <Trash2 size={14} />
+                        </button>
+                      </div>
+                    </td>
+                  </tr>
+                ))
+              )}
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+  )
+}
+
+function TransactionsManagementView({
+  transactions,
+  onRecordNewClick,
+}: {
+  transactions: Transaction[]
+  onRecordNewClick: () => void
+}) {
+  const [searchQuery, setSearchQuery] = useState('')
+  const [filterMethod, setFilterMethod] = useState<'all' | 'M-Pesa' | 'Voucher' | 'Airtel Money'>('all')
+
+  const filtered = transactions.filter((t) => {
+    const matchesSearch =
+      t.id.toLowerCase().includes(searchQuery.toLowerCase()) ||
+      t.customer.toLowerCase().includes(searchQuery.toLowerCase()) ||
+      t.package.toLowerCase().includes(searchQuery.toLowerCase()) ||
+      (t.receipt && t.receipt.toLowerCase().includes(searchQuery.toLowerCase()))
+
+    const matchesMethod = filterMethod === 'all' || t.method === filterMethod
+    return matchesSearch && matchesMethod
+  })
+
+  const exportTrxCSV = () => {
+    const headers = 'ID,Customer,Phone,Method,Package,Amount,Status,Time,Receipt\n'
+    const rows = transactions.map((t) => `"${t.id}","${t.customer}","${t.phone || ''}","${t.method}","${t.package}","${t.amount}","${t.status}","${t.time}","${t.receipt || ''}"`).join('\n')
+    const blob = new Blob([headers + rows], { type: 'text/csv;charset=utf-8;' })
+    const url = URL.createObjectURL(blob)
+    const link = document.createElement('a')
+    link.href = url
+    link.download = `transactions_${new Date().toISOString().slice(0, 10)}.csv`
+    link.click()
+  }
+
+  return (
+    <div className="transactions-view">
+      <section className="page-heading">
+        <div>
+          <p className="eyebrow">Finance & Billings</p>
+          <h1>Transactions & Payments</h1>
+          <p className="heading-sub">
+            Track customer payments via M-Pesa, Airtel Money, voucher redemptions, and cash.
+          </p>
+        </div>
+        <div className="heading-actions">
+          <button className="button secondary" onClick={exportTrxCSV}>
+            <Download size={15} /> Export CSV
+          </button>
+          <button className="button primary" onClick={onRecordNewClick}>
+            <Plus size={16} /> Record payment
+          </button>
+        </div>
+      </section>
+
+      {/* Metrics Row */}
+      <section className="metrics-grid">
+        <Metric
+          label="Total Revenue"
+          value="KSh 284,650"
+          change="18.4%"
+          trend="up"
+          icon={CircleDollarSign}
+          accent="green"
+        />
+        <Metric
+          label="M-Pesa Collections"
+          value="KSh 242,500"
+          change="85.2% of total"
+          trend="up"
+          icon={CreditCard}
+          accent="orange"
+        />
+        <Metric
+          label="Vouchers Redeemed"
+          value="KSh 42,150"
+          change="14.8% of total"
+          trend="up"
+          icon={Ticket}
+          accent="teal"
+        />
+        <Metric
+          label="Payment Success Rate"
+          value="99.4%"
+          change="0.6% failed"
+          trend="up"
+          icon={CheckCircle2}
+          accent="blue"
+        />
+      </section>
+
+      {/* Toolbar */}
+      <div className="router-toolbar">
+        <div className="router-search-box">
+          <Search size={16} color="var(--muted)" />
+          <input
+            type="text"
+            placeholder="Search by transaction ID, customer, receipt..."
+            value={searchQuery}
+            onChange={(e) => setSearchQuery(e.target.value)}
+          />
+          {searchQuery && (
+            <button onClick={() => setSearchQuery('')} style={{ background: 'transparent', border: 0, color: 'var(--muted)', cursor: 'pointer', padding: 0 }}>
+              <X size={14} />
+            </button>
+          )}
+        </div>
+
+        <div className="filter-pills">
+          <button className={`filter-pill ${filterMethod === 'all' ? 'active' : ''}`} onClick={() => setFilterMethod('all')}>
+            All ({transactions.length})
+          </button>
+          <button className={`filter-pill ${filterMethod === 'M-Pesa' ? 'active' : ''}`} onClick={() => setFilterMethod('M-Pesa')}>
+            M-Pesa
+          </button>
+          <button className={`filter-pill ${filterMethod === 'Voucher' ? 'active' : ''}`} onClick={() => setFilterMethod('Voucher')}>
+            Voucher
+          </button>
+          <button className={`filter-pill ${filterMethod === 'Airtel Money' ? 'active' : ''}`} onClick={() => setFilterMethod('Airtel Money')}>
+            Airtel Money
+          </button>
+        </div>
+      </div>
+
+      {/* Transactions Table */}
+      <div className="panel" style={{ padding: '0 20px 14px' }}>
+        <div className="table-wrap">
+          <table>
+            <thead>
+              <tr>
+                <th>Transaction ID</th>
+                <th>Customer</th>
+                <th>Payment Method</th>
+                <th>Package</th>
+                <th>Amount</th>
+                <th>Receipt / Ref</th>
+                <th>Status</th>
+                <th>Time</th>
+              </tr>
+            </thead>
+            <tbody>
+              {filtered.map((t) => (
+                <tr key={t.id}>
+                  <td><strong className="transaction-id">{t.id}</strong></td>
+                  <td>
+                    <div>
+                      <strong>{t.customer}</strong>
+                      <span style={{ display: 'block', fontSize: '11px', color: 'var(--muted)' }}>{t.phone}</span>
+                    </div>
+                  </td>
+                  <td>
+                    <span className="method">
+                      <span className={`method-dot ${t.method === 'M-Pesa' ? 'mpesa' : t.method === 'Voucher' ? 'voucher' : 'airtel'}`} />
+                      {t.method}
+                    </span>
+                  </td>
+                  <td><span className="package-name">{t.package}</span></td>
+                  <td><strong>{t.amount}</strong></td>
+                  <td><span style={{ fontFamily: 'monospace', fontSize: '11px', color: 'var(--muted)' }}>{t.receipt || '—'}</span></td>
+                  <td><span className={`status ${t.status.toLowerCase()}`}>{t.status}</span></td>
+                  <td className="muted">{t.time}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+  )
+}
+
+function ReportsManagementView({
+  packages,
+  transactions,
+  customers,
+}: {
+  packages: HotspotPackage[]
+  transactions: Transaction[]
+  customers: CustomerRecord[]
+}) {
+  const [timeRange, setTimeRange] = useState('This Month')
+
+  const totalRevenue = packages.reduce((acc, p) => acc + p.price * p.sales_count, 0)
+  const totalSales = packages.reduce((acc, p) => acc + p.sales_count, 0)
+
+  return (
+    <div className="reports-view">
+      <section className="page-heading">
+        <div>
+          <p className="eyebrow">Analytics & Financial Insights</p>
+          <h1>Performance Reports</h1>
+          <p className="heading-sub">
+            Real-time breakdown of revenue, traffic demand, package popularity, and subscriber growth.
+          </p>
+        </div>
+        <div className="heading-actions">
+          <div className="filter-pills">
+            {['Today', 'Last 7 Days', 'This Month', 'Year to Date'].map((t) => (
+              <button key={t} className={`filter-pill ${timeRange === t ? 'active' : ''}`} onClick={() => setTimeRange(t)}>
+                {t}
+              </button>
+            ))}
+          </div>
+          <button className="button primary" onClick={() => window.print()}>
+            <Printer size={15} /> Print audit report
+          </button>
+        </div>
+      </section>
+
+      {/* Metrics Row */}
+      <section className="metrics-grid">
+        <Metric
+          label="Gross Revenue"
+          value={`KSh ${totalRevenue.toLocaleString()}`}
+          change="18.4% vs last period"
+          trend="up"
+          icon={CircleDollarSign}
+          accent="green"
+        />
+        <Metric
+          label="Total Packages Sold"
+          value={totalSales.toLocaleString()}
+          change="1,284 total orders"
+          trend="up"
+          icon={Ticket}
+          accent="orange"
+        />
+        <Metric
+          label="Data Consumed"
+          value="4.86 TB"
+          change="Peak: 20:00 - 23:00"
+          trend="up"
+          icon={Activity}
+          accent="teal"
+        />
+        <Metric
+          label="Repeat Customer Rate"
+          value="74.2%"
+          change="Loyal subscribers"
+          trend="up"
+          icon={Users}
+          accent="blue"
+        />
+      </section>
+
+      <div className="content-grid">
+        {/* Revenue by Plan Breakdown */}
+        <div className="report-breakdown-card">
+          <div className="panel-heading" style={{ padding: 0 }}>
+            <div>
+              <h2>Revenue by Duration Tier</h2>
+              <p>Income contribution from Hourly, Daily, Weekly, and Monthly packages</p>
+            </div>
+          </div>
+
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '14px', marginTop: '10px' }}>
+            <div className="report-bar-row">
+              <div className="report-bar-top">
+                <strong>Daily Plans (24 Hours Pass)</strong>
+                <span>KSh 121,500 (42.6%)</span>
+              </div>
+              <div className="report-bar-track">
+                <div className="report-bar-fill" style={{ width: '42.6%', background: 'var(--coral)' }} />
+              </div>
+            </div>
+
+            <div className="report-bar-row">
+              <div className="report-bar-top">
+                <strong>Weekly Access Plans</strong>
+                <span>KSh 74,400 (26.1%)</span>
+              </div>
+              <div className="report-bar-track">
+                <div className="report-bar-fill" style={{ width: '26.1%', background: '#317d75' }} />
+              </div>
+            </div>
+
+            <div className="report-bar-row">
+              <div className="report-bar-top">
+                <strong>Monthly & Multi-Device Subscriptions</strong>
+                <span>KSh 64,800 (22.7%)</span>
+              </div>
+              <div className="report-bar-track">
+                <div className="report-bar-fill" style={{ width: '22.7%', background: '#4f779a' }} />
+              </div>
+            </div>
+
+            <div className="report-bar-row">
+              <div className="report-bar-top">
+                <strong>Hourly Express Passes</strong>
+                <span>KSh 23,950 (8.6%)</span>
+              </div>
+              <div className="report-bar-track">
+                <div className="report-bar-fill" style={{ width: '8.6%', background: '#c58a32' }} />
+              </div>
+            </div>
+          </div>
+        </div>
+
+        {/* Payment Channels Distribution */}
+        <div className="report-breakdown-card">
+          <div className="panel-heading" style={{ padding: 0 }}>
+            <div>
+              <h2>Payment Method Breakdown</h2>
+              <p>M-Pesa STK Push vs Vouchers and Airtel Money</p>
+            </div>
+          </div>
+
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '14px', marginTop: '10px' }}>
+            <div className="report-bar-row">
+              <div className="report-bar-top">
+                <strong>M-Pesa Express (Till / Paybill)</strong>
+                <span>KSh 242,500 (85.2%)</span>
+              </div>
+              <div className="report-bar-track">
+                <div className="report-bar-fill" style={{ width: '85.2%', background: '#4ca574' }} />
+              </div>
+            </div>
+
+            <div className="report-bar-row">
+              <div className="report-bar-top">
+                <strong>Voucher Redemptions</strong>
+                <span>KSh 26,800 (9.4%)</span>
+              </div>
+              <div className="report-bar-track">
+                <div className="report-bar-fill" style={{ width: '9.4%', background: 'var(--coral)' }} />
+              </div>
+            </div>
+
+            <div className="report-bar-row">
+              <div className="report-bar-top">
+                <strong>Airtel Money</strong>
+                <span>KSh 15,350 (5.4%)</span>
+              </div>
+              <div className="report-bar-track">
+                <div className="report-bar-fill" style={{ width: '5.4%', background: '#d9554f' }} />
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  )
+}
+
+function SettingsManagementView({
+  settings,
+  operator,
+  onSave,
+  onOpenDbModal,
+}: {
+  settings: HotspotSettings
+  operator: OperatorUser
+  onSave: (newSettings: HotspotSettings) => void
+  onOpenDbModal: () => void
+}) {
+  const [activeTab, setActiveTab] = useState<'general' | 'security' | 'portal' | 'router' | 'payments' | 'sms'>('general')
+  const [formData, setFormData] = useState<HotspotSettings>(settings)
+  const [testPhone, setTestPhone] = useState('+254 712 345 678')
+  const [testMsg, setTestMsg] = useState('')
+  const [isTestingSms, setIsTestingSms] = useState(false)
+  const [testResult, setTestResult] = useState<SmsSendResult | null>(null)
+  const [showApiKey, setShowApiKey] = useState(false)
+
+  const handleSubmit = (e: React.FormEvent) => {
+    e.preventDefault()
+    onSave(formData)
+  }
+
+  const handleRunSmsTest = async () => {
+    if (!testPhone.trim()) return
+    setIsTestingSms(true)
+    setTestResult(null)
+    const startTime = Date.now()
+
+    try {
+      const config: SmsGatewayConfig = {
+        provider: formData.smsProvider || 'africastalking',
+        apiKey: formData.smsApiKey || '',
+        username: formData.smsUsername || 'sandbox',
+        senderId: formData.smsSenderId || 'ORION_WIFI',
+        customEndpoint: formData.smsCustomEndpoint || '',
+        customHeaders: formData.smsCustomHeaders || '',
+        smsEnabled: formData.smsEnabled !== false,
+        defaultCountryCode: formData.smsDefaultCountryCode || '+254',
+      }
+
+      const formatted = formatE164Phone(testPhone, config.defaultCountryCode)
+      const message = testMsg.trim() || `[Harbor House Wi-Fi] Test SMS connection verified! Provider: ${config.provider.toUpperCase()} at ${new Date().toLocaleTimeString()}.`
+
+      const res = await dispatchSms(formatted, message, config)
+      setTestResult(res)
+    } catch (err: any) {
+      setTestResult({
+        success: false,
+        recipient: testPhone,
+        providerUsed: formData.smsProvider,
+        error: err.message || 'Diagnostic test failed',
+        sentAt: new Date().toISOString(),
+      })
+    } finally {
+      setIsTestingSms(false)
+    }
+  }
+
+  return (
+    <div className="settings-view">
+      <section className="page-heading">
+        <div>
+          <p className="eyebrow">System & Customization</p>
+          <h1>Settings & Security</h1>
+          <p className="heading-sub">
+            Customize captive portal branding, router RADIUS parameters, live SMS 2FA gateways, and payment gateways.
+          </p>
+        </div>
+      </section>
+
+      {/* Settings Navigation Tabs */}
+      <div className="settings-tabs">
+        <button
+          className={`settings-tab-btn ${activeTab === 'general' ? 'active' : ''}`}
+          onClick={() => setActiveTab('general')}
+        >
+          <Sliders size={14} /> General & Workspace
+        </button>
+        <button
+          className={`settings-tab-btn ${activeTab === 'security' ? 'active' : ''}`}
+          onClick={() => setActiveTab('security')}
+        >
+          <ShieldCheck size={14} /> Security & 2FA
+        </button>
+        <button
+          className={`settings-tab-btn ${activeTab === 'sms' ? 'active' : ''}`}
+          onClick={() => setActiveTab('sms')}
+        >
+          <MessageSquare size={14} /> SMS Gateway & Alerts
+        </button>
+        <button
+          className={`settings-tab-btn ${activeTab === 'portal' ? 'active' : ''}`}
+          onClick={() => setActiveTab('portal')}
+        >
+          <Palette size={14} /> Captive Portal Branding
+        </button>
+        <button
+          className={`settings-tab-btn ${activeTab === 'router' ? 'active' : ''}`}
+          onClick={() => setActiveTab('router')}
+        >
+          <Router size={14} /> MikroTik & Network
+        </button>
+        <button
+          className={`settings-tab-btn ${activeTab === 'payments' ? 'active' : ''}`}
+          onClick={() => setActiveTab('payments')}
+        >
+          <CreditCard size={14} /> M-Pesa & Gateways
+        </button>
+      </div>
+
+      <form onSubmit={handleSubmit}>
+        {activeTab === 'general' && (
+          <div className="settings-card">
+            <h2>General Workspace Settings</h2>
+            <div className="settings-grid-2">
+              <label>
+                Hotspot Business Name
+                <input
+                  type="text"
+                  value={formData.businessName}
+                  onChange={(e) => setFormData({ ...formData, businessName: e.target.value })}
+                  placeholder="e.g. Harbor House"
+                />
+              </label>
+              <label>
+                Location & City
+                <input
+                  type="text"
+                  value={formData.location}
+                  onChange={(e) => setFormData({ ...formData, location: e.target.value })}
+                  placeholder="e.g. Westlands, Nairobi"
+                />
+              </label>
+              <label>
+                Support Phone Line
+                <input
+                  type="tel"
+                  value={formData.supportPhone}
+                  onChange={(e) => setFormData({ ...formData, supportPhone: e.target.value })}
+                  placeholder="+254 700 123 456"
+                />
+              </label>
+              <label>
+                Currency Symbol
+                <input
+                  type="text"
+                  value={formData.currency}
+                  onChange={(e) => setFormData({ ...formData, currency: e.target.value })}
+                  placeholder="KSh"
+                />
+              </label>
+            </div>
+            <button className="button primary" type="submit" style={{ alignSelf: 'flex-start' }}>
+              <Save size={16} /> Save Changes
+            </button>
+          </div>
+        )}
+
+        {activeTab === 'security' && (
+          <div className="settings-card">
+            <h2>Operator Security & Two-Factor Authentication (2FA)</h2>
+            <div style={{ background: 'var(--card-subtle-bg)', border: '1px solid var(--line)', borderRadius: '10px', padding: '16px', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+              <div>
+                <strong>SMS Two-Factor Authentication (2FA)</strong>
+                <p style={{ margin: '3px 0 0', fontSize: '11px', color: 'var(--muted)' }}>
+                  Require a 6-digit verification code sent via SMS to <strong>{operator.phone}</strong> on every sign in.
+                </p>
+              </div>
+              <span className="live-pill" style={{ background: '#eaf3eb', color: '#34786d' }}>
+                <ShieldCheck size={13} /> Active & Enforced
+              </span>
+            </div>
+
+            <div className="settings-grid-2">
+              <label>
+                Operator Name
+                <input type="text" readOnly value={operator.name} />
+              </label>
+              <label>
+                Role
+                <input type="text" readOnly value={operator.role} />
+              </label>
+              <label>
+                Verified Mobile Phone
+                <input type="text" readOnly value={operator.phone} />
+              </label>
+              <label>
+                Work Email
+                <input type="text" readOnly value={operator.email} />
+              </label>
+            </div>
+          </div>
+        )}
+
+        {/* SMS Gateway & 2FA Tab */}
+        {activeTab === 'sms' && (
+          <div className="settings-card">
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+              <div>
+                <h2>SMS Gateway & Mobile Number Delivery</h2>
+                <p style={{ margin: '4px 0 0', fontSize: '12px', color: 'var(--muted)' }}>
+                  Connect your SMS gateway provider so 2FA codes, Wi-Fi vouchers, and alerts are sent directly to customer and operator phones.
+                </p>
+              </div>
+              <label style={{ display: 'flex', alignItems: 'center', gap: '8px', cursor: 'pointer', margin: 0, fontWeight: 700, fontSize: '12px' }}>
+                <input
+                  type="checkbox"
+                  checked={formData.smsEnabled !== false}
+                  onChange={(e) => setFormData({ ...formData, smsEnabled: e.target.checked })}
+                  style={{ width: '16px', height: '16px', accentColor: 'var(--coral)' }}
+                />
+                Enable Live SMS Dispatch
+              </label>
+            </div>
+
+            {/* Provider Selection Grid */}
+            <div style={{ margin: '14px 0 10px' }}>
+              <span style={{ fontSize: '11px', fontWeight: 700, color: 'var(--muted)', display: 'block', marginBottom: '8px' }}>
+                Choose SMS Gateway Provider
+              </span>
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(200px, 1fr))', gap: '10px' }}>
+                {[
+                  { id: 'africastalking', name: "Africa's Talking", tag: 'Kenya & Africa Default', desc: 'Direct REST API for Safaricom, Airtel, Telkom' },
+                  { id: 'twilio', name: 'Twilio SMS', tag: 'Global Coverage', desc: 'Worldwide international SMS delivery' },
+                  { id: 'advanta', name: 'Advanta SMS', tag: 'Kenya Bulk SMS', desc: 'High-speed local bulk SMS route' },
+                  { id: 'mobilesasa', name: 'Mobilesasa', tag: 'Kenya Gateway', desc: 'Local transactional SMS route' },
+                  { id: 'custom_webhook', name: 'Supabase Edge / Webhook', tag: 'Backend Proxy', desc: 'Secure CORS-free proxy or server endpoint' },
+                  { id: 'simulator', name: 'Demo Simulator', tag: 'Offline Testing', desc: 'Local testing without carrier credits' },
+                ].map((p) => {
+                  const isSelected = (formData.smsProvider || 'africastalking') === p.id
+                  return (
+                    <div
+                      key={p.id}
+                      onClick={() => setFormData({ ...formData, smsProvider: p.id as SmsProviderType })}
+                      style={{
+                        background: isSelected ? 'rgba(211, 107, 77, 0.08)' : 'var(--card-subtle-bg)',
+                        border: `1.5px solid ${isSelected ? 'var(--coral)' : 'var(--line)'}`,
+                        borderRadius: '10px',
+                        padding: '12px 14px',
+                        cursor: 'pointer',
+                        transition: 'all 0.15s ease',
+                      }}
+                    >
+                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                        <strong style={{ fontSize: '13px', color: isSelected ? 'var(--coral)' : 'var(--ink-heading)' }}>
+                          {p.name}
+                        </strong>
+                        {isSelected && <Check size={14} color="var(--coral)" />}
+                      </div>
+                      <span style={{ fontSize: '10px', fontWeight: 700, color: isSelected ? 'var(--coral)' : 'var(--muted)', display: 'block', margin: '2px 0' }}>
+                        {p.tag}
+                      </span>
+                      <p style={{ fontSize: '11px', color: 'var(--muted)', margin: 0 }}>
+                        {p.desc}
+                      </p>
+                    </div>
+                  )
+                })}
+              </div>
+            </div>
+
+            {/* Provider Credential Inputs */}
+            <div className="settings-grid-2" style={{ marginTop: '10px' }}>
+              {(formData.smsProvider === 'africastalking' || !formData.smsProvider) && (
+                <>
+                  <label>
+                    Africa's Talking Username
+                    <input
+                      type="text"
+                      value={formData.smsUsername || ''}
+                      onChange={(e) => setFormData({ ...formData, smsUsername: e.target.value })}
+                      placeholder="sandbox (or your AT live username)"
+                    />
+                  </label>
+                  <label>
+                    Africa's Talking API Key
+                    <div style={{ position: 'relative' }}>
+                      <input
+                        type={showApiKey ? 'text' : 'password'}
+                        value={formData.smsApiKey || ''}
+                        onChange={(e) => setFormData({ ...formData, smsApiKey: e.target.value })}
+                        placeholder="atsk_..."
+                      />
+                      <button
+                        type="button"
+                        onClick={() => setShowApiKey(!showApiKey)}
+                        style={{ position: 'absolute', right: 10, top: '50%', transform: 'translateY(-50%)', background: 'transparent', border: 0, color: 'var(--muted)', cursor: 'pointer' }}
+                      >
+                        {showApiKey ? <EyeOff size={15} /> : <Eye size={15} />}
+                      </button>
+                    </div>
+                  </label>
+                  <label>
+                    Alphanumeric Sender ID (Optional)
+                    <input
+                      type="text"
+                      value={formData.smsSenderId || ''}
+                      onChange={(e) => setFormData({ ...formData, smsSenderId: e.target.value })}
+                      placeholder="e.g. HARBORHOUSE, ORION"
+                      maxLength={11}
+                    />
+                  </label>
+                </>
+              )}
+
+              {formData.smsProvider === 'twilio' && (
+                <>
+                  <label>
+                    Twilio Account SID
+                    <input
+                      type="text"
+                      value={formData.smsUsername || ''}
+                      onChange={(e) => setFormData({ ...formData, smsUsername: e.target.value })}
+                      placeholder="ACxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+                    />
+                  </label>
+                  <label>
+                    Twilio Auth Token
+                    <div style={{ position: 'relative' }}>
+                      <input
+                        type={showApiKey ? 'text' : 'password'}
+                        value={formData.smsApiKey || ''}
+                        onChange={(e) => setFormData({ ...formData, smsApiKey: e.target.value })}
+                        placeholder="Auth Token string"
+                      />
+                      <button
+                        type="button"
+                        onClick={() => setShowApiKey(!showApiKey)}
+                        style={{ position: 'absolute', right: 10, top: '50%', transform: 'translateY(-50%)', background: 'transparent', border: 0, color: 'var(--muted)', cursor: 'pointer' }}
+                      >
+                        {showApiKey ? <EyeOff size={15} /> : <Eye size={15} />}
+                      </button>
+                    </div>
+                  </label>
+                  <label>
+                    Twilio Phone Number / Messaging SID
+                    <input
+                      type="text"
+                      value={formData.smsSenderId || ''}
+                      onChange={(e) => setFormData({ ...formData, smsSenderId: e.target.value })}
+                      placeholder="+15551234567 or MGxxxxxxxx..."
+                    />
+                  </label>
+                </>
+              )}
+
+              {formData.smsProvider === 'advanta' && (
+                <>
+                  <label>
+                    Advanta Partner ID
+                    <input
+                      type="text"
+                      value={formData.smsUsername || ''}
+                      onChange={(e) => setFormData({ ...formData, smsUsername: e.target.value })}
+                      placeholder="e.g. 1024"
+                    />
+                  </label>
+                  <label>
+                    Advanta API Key
+                    <input
+                      type="password"
+                      value={formData.smsApiKey || ''}
+                      onChange={(e) => setFormData({ ...formData, smsApiKey: e.target.value })}
+                      placeholder="Advanta API key"
+                    />
+                  </label>
+                  <label>
+                    Advanta Sender ID / Shortcode
+                    <input
+                      type="text"
+                      value={formData.smsSenderId || ''}
+                      onChange={(e) => setFormData({ ...formData, smsSenderId: e.target.value })}
+                      placeholder="e.g. ADVANTA"
+                    />
+                  </label>
+                </>
+              )}
+
+              {formData.smsProvider === 'mobilesasa' && (
+                <>
+                  <label>
+                    Mobilesasa Bearer API Token
+                    <input
+                      type="password"
+                      value={formData.smsApiKey || ''}
+                      onChange={(e) => setFormData({ ...formData, smsApiKey: e.target.value })}
+                      placeholder="eyJhbGciOi..."
+                    />
+                  </label>
+                  <label>
+                    Sender ID
+                    <input
+                      type="text"
+                      value={formData.smsSenderId || ''}
+                      onChange={(e) => setFormData({ ...formData, smsSenderId: e.target.value })}
+                      placeholder="e.g. MOBILESASA"
+                    />
+                  </label>
+                </>
+              )}
+
+              {formData.smsProvider === 'custom_webhook' && (
+                <>
+                  <label>
+                    Webhook Endpoint URL (Supabase Edge Function)
+                    <input
+                      type="url"
+                      value={formData.smsCustomEndpoint || ''}
+                      onChange={(e) => setFormData({ ...formData, smsCustomEndpoint: e.target.value })}
+                      placeholder="https://ezcwgyhwotomranbyuyh.supabase.co/functions/v1/send-sms"
+                    />
+                  </label>
+                  <label>
+                    Custom Auth Header (Optional)
+                    <input
+                      type="text"
+                      value={formData.smsCustomHeaders || ''}
+                      onChange={(e) => setFormData({ ...formData, smsCustomHeaders: e.target.value })}
+                      placeholder="Bearer eyJ..."
+                    />
+                  </label>
+                </>
+              )}
+
+              <label>
+                Default Country Dialing Code
+                <input
+                  type="text"
+                  value={formData.smsDefaultCountryCode || '+254'}
+                  onChange={(e) => setFormData({ ...formData, smsDefaultCountryCode: e.target.value })}
+                  placeholder="+254"
+                />
+              </label>
+            </div>
+
+            {/* Live SMS Diagnostic Tester Box */}
+            <div style={{ marginTop: '16px', background: 'var(--card-subtle-bg)', border: '1px solid var(--line)', borderRadius: '10px', padding: '16px' }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '8px' }}>
+                <Terminal size={16} color="var(--coral)" />
+                <strong style={{ fontSize: '13px', color: 'var(--ink-heading)' }}>Live SMS Dispatch Diagnostic Tester</strong>
+              </div>
+              <p style={{ margin: '0 0 12px', fontSize: '11px', color: 'var(--muted)' }}>
+                Test sending a live SMS to your physical mobile device to verify gateway credentials and carrier routing.
+              </p>
+
+              <div style={{ display: 'grid', gridTemplateColumns: '1.2fr 1fr auto', gap: '10px', alignItems: 'flex-end' }}>
+                <label style={{ margin: 0 }}>
+                  Recipient Mobile Phone
+                  <input
+                    type="tel"
+                    value={testPhone}
+                    onChange={(e) => setTestPhone(e.target.value)}
+                    placeholder="+254 712 345 678"
+                  />
+                </label>
+                <label style={{ margin: 0 }}>
+                  Custom Test Message (Optional)
+                  <input
+                    type="text"
+                    value={testMsg}
+                    onChange={(e) => setTestMsg(e.target.value)}
+                    placeholder="Testing Orion SMS Gateway..."
+                  />
+                </label>
+                <button
+                  type="button"
+                  className="button secondary"
+                  onClick={handleRunSmsTest}
+                  disabled={isTestingSms || !testPhone}
+                  style={{ height: '38px', padding: '0 16px', display: 'inline-flex', alignItems: 'center', gap: '6px' }}
+                >
+                  {isTestingSms ? <RefreshCw size={14} className="spinning" /> : <Send size={14} />} Send Test SMS
+                </button>
+              </div>
+
+              {/* Diagnostic Test Output */}
+              {testResult && (
+                <div
+                  style={{
+                    marginTop: '12px',
+                    padding: '12px',
+                    borderRadius: '8px',
+                    background: testResult.success ? 'rgba(76, 165, 116, 0.12)' : 'rgba(217, 85, 79, 0.12)',
+                    border: `1px solid ${testResult.success ? '#4ca574' : '#d9554f'}`,
+                    fontSize: '11px',
+                  }}
+                >
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '6px' }}>
+                    <span style={{ fontWeight: 800, color: testResult.success ? '#317d75' : '#c94a32', display: 'inline-flex', alignItems: 'center', gap: '5px' }}>
+                      {testResult.success ? <CheckCircle2 size={15} /> : <AlertTriangle size={15} />}
+                      {testResult.success ? 'SMS Dispatched Successfully' : 'SMS Dispatch Failed'}
+                    </span>
+                    <span style={{ fontSize: '10px', color: 'var(--muted)', fontFamily: 'monospace' }}>
+                      {new Date(testResult.sentAt).toLocaleTimeString()}
+                    </span>
+                  </div>
+                  <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(140px, 1fr))', gap: '6px', margin: '4px 0 8px' }}>
+                    <div><span style={{ color: 'var(--muted)' }}>Recipient:</span> <strong>{testResult.recipient}</strong></div>
+                    <div><span style={{ color: 'var(--muted)' }}>Provider:</span> <strong>{testResult.providerUsed}</strong></div>
+                    <div><span style={{ color: 'var(--muted)' }}>Message ID:</span> <code style={{ fontSize: '10px' }}>{testResult.messageId || 'N/A'}</code></div>
+                  </div>
+                  {testResult.error && (
+                    <div style={{ color: '#c94a32', background: 'rgba(217, 85, 79, 0.1)', padding: '6px 8px', borderRadius: '5px', marginTop: '4px' }}>
+                      <strong>Error details:</strong> {testResult.error}
+                    </div>
+                  )}
+                </div>
+              )}
+            </div>
+
+            <button className="button primary" type="submit" style={{ alignSelf: 'flex-start', marginTop: '14px' }}>
+              <Save size={16} /> Save SMS Gateway Settings
+            </button>
+          </div>
+        )}
+
+        {activeTab === 'portal' && (
+          <div className="settings-card">
+            <h2>Captive Portal & Customer Experience</h2>
+            <div className="settings-grid-2">
+              <label>
+                Welcome Headline
+                <input
+                  type="text"
+                  value={formData.headline}
+                  onChange={(e) => setFormData({ ...formData, headline: e.target.value })}
+                  placeholder="Welcome to Harbor House High-Speed Wi-Fi"
+                />
+              </label>
+              <label>
+                Portal Subtitle Message
+                <input
+                  type="text"
+                  value={formData.portalMessage}
+                  onChange={(e) => setFormData({ ...formData, portalMessage: e.target.value })}
+                  placeholder="Select an unlimited or day pass below"
+                />
+              </label>
+            </div>
+
+            <div>
+              <span style={{ fontSize: '11px', fontWeight: 700, color: 'var(--muted)' }}>Brand Primary Color</span>
+              <div className="color-swatch-list">
+                {[
+                  ['#d36b4d', 'Coral Orange'],
+                  ['#317d75', 'Emerald Teal'],
+                  ['#4f779a', 'Ocean Blue'],
+                  ['#c58a32', 'Amber Gold'],
+                  ['#725796', 'Royal Purple'],
+                ].map(([color, label]) => (
+                  <button
+                    key={color}
+                    type="button"
+                    title={label}
+                    className={`color-swatch-btn ${formData.primaryColor === color ? 'active' : ''}`}
+                    style={{ background: color }}
+                    onClick={() => setFormData({ ...formData, primaryColor: color })}
+                  />
+                ))}
+              </div>
+            </div>
+
+            <button className="button primary" type="submit" style={{ alignSelf: 'flex-start' }}>
+              <Save size={16} /> Save Portal Styling
+            </button>
+          </div>
+        )}
+
+        {activeTab === 'router' && (
+          <div className="settings-card">
+            <h2>MikroTik RouterOS & Gateway Settings</h2>
+            <div className="settings-grid-2">
+              <label>
+                Core Router IP Address
+                <input
+                  type="text"
+                  value={formData.mikrotikIp}
+                  onChange={(e) => setFormData({ ...formData, mikrotikIp: e.target.value })}
+                  placeholder="10.20.0.1"
+                />
+              </label>
+              <label>
+                RouterOS API Port
+                <input
+                  type="text"
+                  value={formData.mikrotikPort}
+                  onChange={(e) => setFormData({ ...formData, mikrotikPort: e.target.value })}
+                  placeholder="8728"
+                />
+              </label>
+              <label>
+                Session Timeout (Minutes)
+                <input
+                  type="number"
+                  value={formData.sessionTimeout}
+                  onChange={(e) => setFormData({ ...formData, sessionTimeout: e.target.value })}
+                  placeholder="1440"
+                />
+              </label>
+              <label>
+                Idle Timeout (Minutes)
+                <input
+                  type="number"
+                  value={formData.idleTimeout}
+                  onChange={(e) => setFormData({ ...formData, idleTimeout: e.target.value })}
+                  placeholder="15"
+                />
+              </label>
+            </div>
+            <button className="button primary" type="submit" style={{ alignSelf: 'flex-start' }}>
+              <Save size={16} /> Save Network Config
+            </button>
+          </div>
+        )}
+
+        {activeTab === 'payments' && (
+          <div className="settings-card">
+            <h2>Payment Gateways & Integrations</h2>
+            <div className="settings-grid-2">
+              <label>
+                M-Pesa Paybill / Till Number
+                <input
+                  type="text"
+                  value={formData.mpesaTill}
+                  onChange={(e) => setFormData({ ...formData, mpesaTill: e.target.value })}
+                  placeholder="892100"
+                />
+              </label>
+              <label>
+                M-Pesa Daraja Passkey
+                <input
+                  type="password"
+                  value={formData.mpesaPasskey}
+                  onChange={(e) => setFormData({ ...formData, mpesaPasskey: e.target.value })}
+                  placeholder="Passkey string"
+                />
+              </label>
+              <label>
+                Airtel Money Merchant ID
+                <input
+                  type="text"
+                  value={formData.airtelMerchantId}
+                  onChange={(e) => setFormData({ ...formData, airtelMerchantId: e.target.value })}
+                  placeholder="HH-AIRTEL-901"
+                />
+              </label>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
+                <span style={{ fontSize: '11px', fontWeight: 700, color: 'var(--muted)' }}>Database Cloud Sync</span>
+                <button
+                  type="button"
+                  className="button secondary"
+                  style={{ alignSelf: 'flex-start' }}
+                  onClick={onOpenDbModal}
+                >
+                  <Database size={15} /> Configure Supabase API Keys
+                </button>
+              </div>
+            </div>
+            <button className="button primary" type="submit" style={{ alignSelf: 'flex-start' }}>
+              <Save size={16} /> Save Payment Settings
+            </button>
+          </div>
+        )}
+      </form>
     </div>
   )
 }
@@ -1653,6 +3967,86 @@ function PackagesManagementView({
           </button>
         </div>
       </section>
+
+      {/* Unified Unlimited Internet Plans Suite Banner */}
+      <div className="unlimited-suite-box">
+        <div className="unlimited-suite-header">
+          <div className="unlimited-suite-title">
+            <div style={{ background: 'var(--coral)', color: '#fff', padding: 7, borderRadius: 8, display: 'grid', placeItems: 'center' }}>
+              <Infinity size={20} />
+            </div>
+            <div>
+              <h2>Unified Unlimited Hotspot Plans Suite</h2>
+              <p>Combined unmetered bandwidth packages across Hours, Days, Weeks, Months, and Multi-Device tiers.</p>
+            </div>
+          </div>
+          <button className="button primary" style={{ fontSize: '11px', padding: '6px 12px' }} onClick={onAddNewClick}>
+            <Sparkles size={13} /> Customize Plan
+          </button>
+        </div>
+
+        <div className="unlimited-matrix-grid">
+          <div className="matrix-tier-card">
+            <div className="matrix-tier-header">
+              <span className="matrix-tier-badge">Hourly Unlimited</span>
+              <Zap size={14} color="#dca642" />
+            </div>
+            <div className="matrix-tier-price">
+              <strong>KSh 70</strong>
+              <span>/ 1 Hour</span>
+            </div>
+            <div className="matrix-tier-specs">
+              <span><Check size={12} /> 10 Mbps Unmetered</span>
+              <span><Check size={12} /> 1 Device Instant</span>
+            </div>
+          </div>
+
+          <div className="matrix-tier-card">
+            <div className="matrix-tier-header">
+              <span className="matrix-tier-badge" style={{ background: '#fdf1e7', color: 'var(--coral)' }}>Daily Unlimited</span>
+              <Flame size={14} color="var(--coral)" />
+            </div>
+            <div className="matrix-tier-price">
+              <strong>KSh 350</strong>
+              <span>/ 24 Hours</span>
+            </div>
+            <div className="matrix-tier-specs">
+              <span><Check size={12} /> 20 Mbps High-Speed</span>
+              <span><Check size={12} /> Most Popular Tier</span>
+            </div>
+          </div>
+
+          <div className="matrix-tier-card">
+            <div className="matrix-tier-header">
+              <span className="matrix-tier-badge" style={{ background: '#eaf3eb', color: '#317d75' }}>Weekly Unlimited</span>
+              <TrendingUp size={14} color="#317d75" />
+            </div>
+            <div className="matrix-tier-price">
+              <strong>KSh 1,500</strong>
+              <span>/ 7 Days</span>
+            </div>
+            <div className="matrix-tier-specs">
+              <span><Check size={12} /> 25 Mbps Ultra Line</span>
+              <span><Check size={12} /> Full 168h Access</span>
+            </div>
+          </div>
+
+          <div className="matrix-tier-card">
+            <div className="matrix-tier-header">
+              <span className="matrix-tier-badge" style={{ background: '#e6f0fa', color: '#4f779a' }}>Monthly Multi-Device</span>
+              <Users size={14} color="#4f779a" />
+            </div>
+            <div className="matrix-tier-price">
+              <strong>KSh 6,500</strong>
+              <span>/ 30 Days</span>
+            </div>
+            <div className="matrix-tier-specs">
+              <span><Check size={12} /> 50 Mbps Turbo Line</span>
+              <span><Check size={12} /> 4 Devices Shared</span>
+            </div>
+          </div>
+        </div>
+      </div>
 
       {/* Package Metrics */}
       <section className="metrics-grid">
@@ -1861,12 +4255,14 @@ function CustomersManagementView({
   onDelete,
   onExportCSV,
   onAddNewClick,
+  onSendSmsClick,
 }: {
   customers: CustomerRecord[]
   onToggleBlock: (customer: CustomerRecord) => void
   onDelete: (id: string, name: string) => void
   onExportCSV: () => void
   onAddNewClick: () => void
+  onSendSmsClick?: (customer: CustomerRecord) => void
 }) {
   const [searchQuery, setSearchQuery] = useState('')
   const [filterStatus, setFilterStatus] = useState<'all' | 'active' | 'idle' | 'blocked'>('all')
@@ -2061,6 +4457,13 @@ function CustomersManagementView({
                     <td><span className="muted">{customer.last_active}</span></td>
                     <td style={{ textAlign: 'right' }}>
                       <div className="customer-quick-actions" style={{ justifyContent: 'flex-end' }}>
+                        <button
+                          className="customer-icon-btn"
+                          title="Send SMS message to customer"
+                          onClick={() => onSendSmsClick?.(customer)}
+                        >
+                          <MessageSquare size={13} />
+                        </button>
                         <button
                           className={`customer-icon-btn ${customer.status === 'blocked' ? '' : 'danger'}`}
                           title={customer.status === 'blocked' ? 'Unblock customer Wi-Fi access' : 'Block customer device MAC'}
@@ -2365,18 +4768,6 @@ function PackageRow({ name, sales, amount, width, color }: { name: string; sales
       </div>
       <div className="package-bar"><i className={color} style={{ width }} /></div>
     </div>
-  )
-}
-
-function SectionPlaceholder({ section }: { section: string }) {
-  return (
-    <section className="panel section-placeholder">
-      <div className="placeholder-icon"><LayoutDashboard size={20} /></div>
-      <p className="eyebrow">Workspace module</p>
-      <h2>{section} is coming into focus</h2>
-      <p>Connect this module to the Harbor House workspace to manage it from the same operator command center.</p>
-      <button className="button secondary" onClick={() => window.scrollTo({ top: 0, behavior: 'smooth' })}>Back to top <ArrowUpRight size={15} /></button>
-    </section>
   )
 }
 

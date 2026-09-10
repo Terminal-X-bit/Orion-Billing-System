@@ -2146,6 +2146,473 @@ th:first-child, td:first-child {
   flex-shrink: 0;
 }
 
+/* ====================================================================
+   Vouchers Management & Print Layout Styles
+   ==================================================================== */
+.vouchers-view {
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+}
+
+.voucher-code-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  background: var(--card-subtle-bg);
+  border: 1px dashed var(--line);
+  padding: 4px 8px;
+  border-radius: 6px;
+  font-family: monospace;
+  font-weight: 700;
+  font-size: 12px;
+  letter-spacing: 0.05em;
+  color: var(--ink-heading);
+}
+
+.voucher-copy-btn {
+  background: transparent;
+  border: 0;
+  color: var(--muted);
+  cursor: pointer;
+  padding: 0;
+  display: grid;
+  place-items: center;
+  transition: color 0.15s ease;
+}
+
+.voucher-copy-btn:hover {
+  color: var(--coral);
+}
+
+.voucher-status-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 10px;
+  font-weight: 700;
+  padding: 3px 8px;
+  border-radius: 12px;
+}
+
+.voucher-status-pill.active {
+  background: #eaf3eb;
+  color: #34786d;
+}
+
+.voucher-status-pill.redeemed {
+  background: var(--card-subtle-bg);
+  color: var(--muted);
+  border: 1px solid var(--line);
+}
+
+.voucher-status-pill.expired {
+  background: #fde8e4;
+  color: #c94a32;
+}
+
+[data-theme="dark"] .voucher-status-pill.active {
+  background: #173327;
+  color: #5ec896;
+}
+
+[data-theme="dark"] .voucher-status-pill.expired {
+  background: #3a1c18;
+  color: #f17862;
+}
+
+/* Voucher Print Slips Grid */
+.voucher-print-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+  gap: 12px;
+  max-height: 420px;
+  overflow-y: auto;
+  padding: 8px 2px;
+}
+
+.voucher-slip-card {
+  border: 1px dashed var(--line);
+  background: var(--card-bg);
+  border-radius: 8px;
+  padding: 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  text-align: center;
+  position: relative;
+}
+
+.voucher-slip-header {
+  font-size: 11px;
+  font-weight: 700;
+  color: var(--coral);
+  text-transform: uppercase;
+}
+
+.voucher-slip-code {
+  font-family: monospace;
+  font-size: 16px;
+  font-weight: 800;
+  letter-spacing: 0.1em;
+  padding: 6px;
+  background: var(--card-subtle-bg);
+  border-radius: 4px;
+  color: var(--ink-heading);
+}
+
+.voucher-slip-footer {
+  font-size: 10px;
+  color: var(--muted);
+}
+
+/* ====================================================================
+   Transactions Panel Styles
+   ==================================================================== */
+.transactions-view {
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+}
+
+.method-tag {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  font-size: 11px;
+  font-weight: 600;
+}
+
+/* ====================================================================
+   Reports Panel Styles
+   ==================================================================== */
+.reports-view {
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+}
+
+.report-breakdown-card {
+  background: var(--card-bg);
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  padding: 20px;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.report-bar-row {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.report-bar-top {
+  display: flex;
+  justify-content: space-between;
+  font-size: 11px;
+}
+
+.report-bar-top strong {
+  color: var(--ink-heading);
+}
+
+.report-bar-top span {
+  color: var(--muted);
+}
+
+.report-bar-track {
+  height: 8px;
+  background: var(--card-subtle-bg);
+  border-radius: 4px;
+  overflow: hidden;
+}
+
+.report-bar-fill {
+  height: 100%;
+  border-radius: 4px;
+  transition: width 0.3s ease;
+}
+
+/* ====================================================================
+   Settings Panel Styles
+   ==================================================================== */
+.settings-view {
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+}
+
+.settings-tabs {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  border-bottom: 1px solid var(--line);
+  padding-bottom: 8px;
+  overflow-x: auto;
+}
+
+.settings-tab-btn {
+  border: 0;
+  background: transparent;
+  color: var(--muted);
+  font: 600 12px Plus Jakarta Sans, sans-serif;
+  padding: 8px 14px;
+  border-radius: 8px;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  transition: all 0.15s ease;
+  white-space: nowrap;
+}
+
+.settings-tab-btn:hover {
+  color: var(--ink);
+  background: var(--nav-hover-bg);
+}
+
+.settings-tab-btn.active {
+  color: var(--coral);
+  background: rgba(211, 107, 77, 0.12);
+}
+
+.settings-card {
+  background: var(--card-bg);
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  padding: 24px;
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+}
+
+.settings-grid-2 {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+  gap: 16px;
+}
+
+.color-swatch-list {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-top: 6px;
+}
+
+.color-swatch-btn {
+  width: 28px;
+  height: 28px;
+  border-radius: 50%;
+  border: 2px solid transparent;
+  cursor: pointer;
+  transition: transform 0.15s ease, border-color 0.15s ease;
+}
+
+.color-swatch-btn:hover,
+.color-swatch-btn.active {
+  transform: scale(1.15);
+  border-color: var(--ink-heading);
+}
+
+/* ====================================================================
+   Operator Authentication & Two-Factor (2FA) Styles
+   ==================================================================== */
+.auth-overlay {
+  min-height: 100vh;
+  width: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: radial-gradient(circle at 50% 20%, rgba(211, 107, 77, 0.12) 0%, var(--bg) 70%);
+  padding: 20px;
+}
+
+.auth-box {
+  width: min(100%, 460px);
+  background: var(--card-bg);
+  border: 1px solid var(--line);
+  border-radius: 16px;
+  padding: 32px;
+  box-shadow: 0 16px 40px rgba(0, 0, 0, 0.08);
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+  animation: fadeIn 0.25s ease;
+}
+
+.auth-brand-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+.auth-title-wrap {
+  text-align: center;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.auth-title-wrap h1 {
+  margin: 0;
+  font: 800 24px Manrope, sans-serif;
+  color: var(--ink-heading);
+}
+
+.auth-title-wrap p {
+  margin: 0;
+  font-size: 13px;
+  color: var(--muted);
+}
+
+.auth-tabs-row {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  background: var(--card-subtle-bg);
+  padding: 4px;
+  border-radius: 8px;
+  gap: 4px;
+}
+
+.auth-tab-item {
+  border: 0;
+  background: transparent;
+  color: var(--muted);
+  font: 700 12px Plus Jakarta Sans, sans-serif;
+  padding: 8px;
+  border-radius: 6px;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.auth-tab-item.active {
+  background: var(--card-bg);
+  color: var(--ink-heading);
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.06);
+}
+
+.auth-2fa-icon-wrap {
+  width: 54px;
+  height: 54px;
+  border-radius: 14px;
+  background: rgba(211, 107, 77, 0.12);
+  color: var(--coral);
+  display: grid;
+  place-items: center;
+  margin: 0 auto;
+}
+
+.auth-otp-row {
+  display: flex;
+  justify-content: center;
+  gap: 8px;
+  margin: 12px 0 6px;
+}
+
+.auth-otp-field {
+  width: 46px;
+  height: 52px;
+  text-align: center;
+  font-family: monospace;
+  font-size: 22px;
+  font-weight: 800;
+  border: 1.5px solid var(--line);
+  background: var(--card-subtle-bg);
+  color: var(--ink-heading);
+  border-radius: 8px;
+  transition: all 0.15s ease;
+}
+
+.auth-otp-field:focus {
+  outline: none;
+  border-color: var(--coral);
+  background: var(--card-bg);
+  box-shadow: 0 0 0 3px rgba(211, 107, 77, 0.15);
+}
+
+.auth-demo-pill {
+  background: var(--card-subtle-bg);
+  border: 1px dashed var(--line);
+  border-radius: 8px;
+  padding: 10px 14px;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  font-size: 11px;
+}
+
+.auth-demo-pill strong {
+  font-family: monospace;
+  font-size: 13px;
+  letter-spacing: 0.1em;
+  color: var(--coral);
+}
+
+/* SMS Gateway & 2FA Styling Tokens */
+.sms-provider-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+  gap: 12px;
+  margin: 12px 0;
+}
+
+.sms-provider-card {
+  background: var(--card-subtle-bg);
+  border: 1.5px solid var(--line);
+  border-radius: 10px;
+  padding: 14px;
+  cursor: pointer;
+  transition: all 0.15s ease;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.sms-provider-card:hover {
+  border-color: var(--coral);
+  transform: translateY(-1px);
+}
+
+.sms-provider-card.selected {
+  background: rgba(211, 107, 77, 0.08);
+  border-color: var(--coral);
+}
+
+.sms-diagnostic-terminal {
+  background: var(--card-subtle-bg);
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  padding: 16px;
+  margin-top: 16px;
+}
+
+.sms-delivery-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 10px;
+  border-radius: 6px;
+  font-size: 11px;
+  font-weight: 600;
+}
+
+.sms-delivery-badge.success {
+  background: rgba(76, 165, 116, 0.15);
+  color: #317d75;
+  border: 1px solid #4ca574;
+}
+
+.sms-delivery-badge.failed {
+  background: rgba(217, 85, 79, 0.15);
+  color: #c94a32;
+  border: 1px solid #d9554f;
+}
+
+
+
+
 
 
 
