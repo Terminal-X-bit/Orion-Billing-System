@@ -1,0 +1,37 @@
+<!doctype html>
+<!--
+  MikroTik hotspot redirector (router-side helper).
+
+  Copy this file onto the router as  <html-directory>/login.html  and set:
+
+    /ip hotspot profile set [find] html-directory=<dir containing this file>
+
+  Replace BRIDGE_HOST:8787 with the address of the machine running the bridge.
+  That host must be reachable from guests: add it to the walled garden:
+
+    /ip hotspot walled-garden ip add action=accept disabled=no dst-address=BRIDGE_IP
+    (or for a hostname: /ip hotspot walled-garden add action=accept disabled=no dst-host=BRIDGE_HOST)
+
+  The redirect carries the RouterOS variables the portal page understands:
+    linkloginonly=$(link-login-only)  -> the router's login handler (POST target)
+    dst=$(link-orig-esc)              -> the site the guest originally asked for
+
+  Tip: keep MikroTik's default pages (alogin.html, logout.html, error.html)
+  alongside this file so post-login states still render.
+-->
+<html>
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta http-equiv="refresh" content="0; url=http://BRIDGE_HOST:8787/portal?linkloginonly=$(link-login-only)&amp;dst=$(link-orig-esc)" />
+    <title>Orion Wi-Fi</title>
+    <style>
+      body { font-family: -apple-system, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; background: #f4f6f1; color: #25322f; display: grid; place-items: center; min-height: 100vh; margin: 0; }
+      p { font-size: 14px; }
+      a { color: #d36b4d; font-weight: 700; }
+    </style>
+  </head>
+  <body>
+    <p>Redirecting to the Orion Wi-Fi sign-in page… <a href="http://BRIDGE_HOST:8787/portal?linkloginonly=$(link-login-only)&amp;dst=$(link-orig-esc)">Continue</a></p>
+  </body>
+</html>

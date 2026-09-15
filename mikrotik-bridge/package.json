@@ -1,0 +1,15 @@
+{
+  "name": "orion-mikrotik-bridge",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Bridges Orion Supabase billing (packages, vouchers, M-Pesa STK payments) to MikroTik RouterOS hotspot provisioning via the RouterOS binary API.",
+  "main": "index.js",
+  "scripts": {
+    "start": "node index.js",
+    "test": "node test/selftest.js",
+    "check": "node --check index.js && node --check src/routeros-client.js && node --check src/supabase-rest.js && node --check src/provisioning.js && node --check src/daraja.js && node --check src/voucher-codes.js"
+  },
+  "engines": {
+    "node": ">=18"
+  }
+}

@@ -1,0 +1,103 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="theme-color" content="#f4f6f1" />
+    <title>Orion Wi-Fi — Sign in</title>
+    <script>
+      (function() {
+        try {
+          var theme = localStorage.getItem('orion_theme');
+          if (theme !== 'light' && theme !== 'dark') {
+            theme = window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light';
+          }
+          document.documentElement.setAttribute('data-theme', theme);
+        } catch (e) {}
+      })();
+    </script>
+    <link rel="stylesheet" href="portal.css" />
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&family=Manrope:wght@600;700;800&display=swap" />
+  </head>
+  <body>
+    <div class="shell">
+      <div class="top-right">
+        <button class="link-button" id="themeToggle" type="button">Dark mode</button>
+      </div>
+
+      <main class="card">
+        <div class="brand">
+          <div class="brand-mark" aria-hidden="true">
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M2 8.82a15 15 0 0 1 20 0"/><path d="M5 12.55a11 11 0 0 1 14 0"/><path d="M8.5 16.43a6 6 0 0 1 7 0"/><path d="M12 20h.01"/></svg>
+          </div>
+          <span>orion<span class="brand-dot">.</span></span>
+        </div>
+
+        <!-- STEP 1: sign in / buy -->
+        <section id="view-auth">
+          <p class="eyebrow">Hotspot access</p>
+          <h1 id="authTitle">You're connected — sign in</h1>
+          <p class="sub" id="authSub">Enter the voucher code from your receipt, or buy instant access with M-Pesa.</p>
+
+          <div class="mode-switch" role="tablist">
+            <button id="tabVoucher" type="button" class="active">Voucher</button>
+            <button id="tabBuy" type="button">Buy with M-Pesa</button>
+          </div>
+
+          <div id="errorBox" class="status-banner err hidden" role="alert"><i></i><p id="errorMsg"></p></div>
+
+          <form id="voucherForm">
+            <label for="code">Voucher code
+              <input type="text" id="code" name="code" placeholder="ORN-XXXX-XXXX" autocomplete="off" autocapitalize="characters" spellcheck="false" />
+            </label>
+            <button class="button primary" type="submit" id="voucherBtn">Connect</button>
+            <p class="tiny">Find your code on the receipt printed after payment.</p>
+          </form>
+
+          <form id="buyForm" class="hidden">
+            <div class="packages-list" id="packagesList"><p class="tiny">Loading packages…</p></div>
+            <label for="phone" style="margin-top: 16px">M-Pesa phone number
+              <input type="tel" id="phone" name="phone" placeholder="07XX XXX XXX" autocomplete="tel" inputmode="tel" />
+            </label>
+            <button class="button primary" type="submit" id="buyBtn">Buy &amp; pay via M-Pesa</button>
+            <p class="tiny">You'll get an STK push prompt on your phone — enter your PIN to confirm.</p>
+          </form>
+        </section>
+
+        <!-- STEP 2: payment processing -->
+        <section id="view-waiting" class="hidden">
+          <p class="eyebrow">M-Pesa</p>
+          <h1>Check your phone</h1>
+          <p class="sub" id="waitingSub">We've sent a payment prompt to your phone.</p>
+          <div class="voucher-hero">
+            <p class="eyebrow">Total</p>
+            <p class="voucher-code" id="waitingAmount">KSh —</p>
+            <p class="voucher-sub" id="waitingPkg"></p>
+          </div>
+          <button class="button primary" id="cancelWaitBtn" type="button">Cancel</button>
+        </section>
+
+        <!-- STEP 3: success -->
+        <section id="view-success" class="hidden">
+          <p class="eyebrow">Payment received</p>
+          <h1>You're almost online</h1>
+          <p class="sub">Save this code — it's your Wi-Fi login. Use it on this and any other device in your plan.</p>
+          <div class="voucher-hero">
+            <p class="eyebrow">Your access code</p>
+            <p class="voucher-code" id="voucherCode">—</p>
+            <p class="voucher-sub" id="voucherMeta"></p>
+          </div>
+          <div class="status-banner ok" id="receiptLine"><i></i><p></p></div>
+          <button class="button primary" id="startBtn" type="button">Start browsing</button>
+          <button class="link-button" id="copyCodeBtn" type="button">Copy code</button>
+        </section>
+      </main>
+
+      <p class="footer-note">Powered by Orion Hotspot Billing · Pay via M-Pesa · Support: 0700 000 000</p>
+    </div>
+
+    <script src="portal.js"></script>
+  </body>
+</html>
