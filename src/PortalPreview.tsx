@@ -27,18 +27,23 @@ export function PortalPreview({ branding }: Props) {
   const [device, setDevice] = useState<DeviceMode>('desktop')
   const [qrOpen, setQrOpen] = useState(false)
   const [urlDraft, setUrlDraft] = useState(getPortalUrlOverride())
-  const [debounced, setDebounced] = useState(branding)
+  // Keyed on the stringified branding so identity churn (the parent re-renders
+  // on every poll with a new literal) never rebuilds/reloads the iframe —
+  // only real content changes do.
+  const [debouncedKey, setDebouncedKey] = useState(() => JSON.stringify(branding))
   const frameRef = useRef<HTMLIFrameElement>(null)
 
   // Debounce so every keystroke doesn't rebuild/re-exec the whole document.
   useEffect(() => {
-    const t = window.setTimeout(() => setDebounced(branding), 350)
+    const next = JSON.stringify(branding)
+    if (next === debouncedKey) return
+    const t = window.setTimeout(() => setDebouncedKey(next), 350)
     return () => window.clearTimeout(t)
-  }, [branding])
+  }, [branding, debouncedKey])
 
   const doc = useMemo(
-    () => buildPortalPreviewDocument(debounced),
-    [debounced],
+    () => buildPortalPreviewDocument(JSON.parse(debouncedKey) as PortalBrandingPreview),
+    [debouncedKey],
   )
 
   // Live portal URL: operator draft (validated live) or best-known default.
