@@ -44,6 +44,10 @@ $env:BRIDGE_PORT='8799'
      `https://registry.npmjs.org/@typescript/typescript-win32-x64/-/typescript-win32-x64-7.0.2.tgz`
      and extract as `node_modules/@typescript/typescript-win32-x64/`
      (the tarball extracts as `package/`, so rename after extracting).
+   - `lightningcss-win32-x64-msvc@1.33.0` (already applied) — needed for
+     `vite build` CSS minification. Fetch
+     `https://registry.npmjs.org/lightningcss-win32-x64-msvc/-/lightningcss-win32-x64-msvc-1.33.0.tgz`
+     and extract into `node_modules/lightningcss-win32-x64-msvc/`.
    (Alternative on a machine with npm: delete `node_modules` + `package-lock.json`, run `npm i`.)
 3. **Env files**: `.env.local` already lives in this checkout (it IS the main
    checkout). In a separate worktree, copy `.env.local` from the main checkout

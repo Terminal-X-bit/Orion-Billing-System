@@ -12,6 +12,7 @@ import {
 } from 'lucide-react'
 import { supabase, getSupabaseConfig, setSupabaseConfig } from './lib/supabase'
 import { useTheme } from './useTheme'
+import { PortalPreview } from './PortalPreview'
 import {
   SmsGatewayConfig,
   SmsProviderType,
@@ -3817,14 +3818,41 @@ function SettingsManagementView({
               support phone, welcome texts, and brand color from here every time a guest loads the page.
               Business name and support phone are shared with the General tab.
             </p>
+            <PortalPreview
+              branding={{
+                businessName: formData.businessName,
+                supportPhone: formData.supportPhone,
+                primaryColor: formData.primaryColor,
+                portalTitle: formData.portalTitle,
+                portalMessage: formData.portalMessage,
+              }}
+            />
             <div className="settings-grid-2">
+              <label>
+                Business Name (portal brand)
+                <input
+                  type="text"
+                  value={formData.businessName}
+                  onChange={(e) => setFormData({ ...formData, businessName: e.target.value })}
+                  placeholder="e.g. Harbor House"
+                />
+              </label>
+              <label>
+                Support Phone (portal footer)
+                <input
+                  type="tel"
+                  value={formData.supportPhone}
+                  onChange={(e) => setFormData({ ...formData, supportPhone: e.target.value })}
+                  placeholder="+254 700 123 456"
+                />
+              </label>
               <label>
                 Welcome Headline
                 <input
                   type="text"
-                  value={formData.headline}
-                  onChange={(e) => setFormData({ ...formData, headline: e.target.value })}
-                  placeholder="Welcome to Harbor House High-Speed Wi-Fi"
+                  value={formData.portalTitle}
+                  onChange={(e) => setFormData({ ...formData, portalTitle: e.target.value })}
+                  placeholder="You're connected — sign in"
                 />
               </label>
               <label>
@@ -3833,7 +3861,7 @@ function SettingsManagementView({
                   type="text"
                   value={formData.portalMessage}
                   onChange={(e) => setFormData({ ...formData, portalMessage: e.target.value })}
-                  placeholder="Select an unlimited or day pass below"
+                  placeholder="Enter the voucher code from your receipt, or buy instant access with M-Pesa."
                 />
               </label>
             </div>

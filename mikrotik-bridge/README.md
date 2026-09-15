@@ -161,6 +161,16 @@ brand fills is chosen automatically for contrast), **welcome headline** and
 cosmetic, sanitized fields (length-clamped, control characters stripped,
 `</script>`-safe JSON escaping, `#rrggbb`-validated color).
 
+The same tab includes a **live portal preview**: it renders the actual
+`portal.html/css/js` in an iframe with the in-progress branding injected via
+the same color-derivation code (`src/brand-colors.js`), so operators see
+exactly what guests will get before saving. The preview header also has a
+**QR code** and an **Open live portal** link for testing the real page on a
+phone: the address is resolved from `VITE_PORTAL_URL` (dashboard `.env.local`,
+e.g. `http://192.168.88.10:8787/portal`), overridable at runtime in the QR
+panel (persisted per browser), and defaults to the dashboard host + bridge
+port 8787.
+
 The page offers two ways online:
 
 1. **Voucher** — the code is submitted as both hotspot username and password to
