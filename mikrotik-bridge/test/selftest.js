@@ -259,4 +259,111 @@ assert.throws(() => makeDarajaClient({ consumerKey: 'k', consumerSecret: 's', sh
   for (const ch of VOUCHER_ALPHABET) assert.ok(!'0O1I'.includes(ch))
 }
 
-console.log('All bridge self-tests passed.')
+// ---------------------------------------------------------------------------
+// Portal branding (normalize, escape, palettes, cached store)
+// ---------------------------------------------------------------------------
+const {
+  DEFAULT_BRANDING,
+  normalizeBranding,
+  buildBrandingScript,
+  buildBrandStyle,
+  buildBrandPalettes,
+  makeBrandingStore,
+} = require('../src/branding')
+
+// DB row -> normalized shape, unknown fields fall back to defaults.
+{
+  const b = normalizeBranding({
+    business_name: '  Acme  Networks  ',
+    support_phone: '0700-111 222\n',
+    primary_color: '#317D75',
+    portal_title: 'Karibu — sign in',
+    portal_message: '',
+    footer_note: 'Terms apply',
+  })
+  assert.strictEqual(b.businessName, 'Acme Networks')
+  assert.strictEqual(b.supportPhone, '0700-111 222')
+  assert.strictEqual(b.primaryColor, '#317d75')
+  assert.strictEqual(b.portalTitle, 'Karibu — sign in')
+  assert.strictEqual(b.portalMessage, DEFAULT_BRANDING.portalMessage, 'empty DB message falls back')
+  assert.strictEqual(b.footerNote, 'Terms apply')
+
+  // CamelCase input (dashboard-style payload) also accepted.
+  const c = normalizeBranding({ businessName: 'X', supportPhone: '119', primaryColor: 'javascript:alert(1)' })
+  assert.strictEqual(c.businessName, 'X')
+  assert.strictEqual(c.primaryColor, DEFAULT_BRANDING.primaryColor, 'bad color rejected')
+
+  // Sanitization: control chars stripped, long strings clamped.
+  const long = 'A'.repeat(200)
+  const s = normalizeBranding({ business_name: 'bad\u0000\u001f name', portal_message: long })
+  assert.strictEqual(s.businessName, 'bad name', 'control chars stripped and whitespace collapsed')
+  assert.ok(s.portalMessage.length <= 160)
+
+  // Non-objects and nulls give pure defaults.
+  assert.deepStrictEqual(normalizeBranding(null), DEFAULT_BRANDING)
+  assert.deepStrictEqual(normalizeBranding(42), DEFAULT_BRANDING)
+}
+
+// Script injection is JSON-safe: </script> cannot break out.
+{
+  const evil = normalizeBranding({ business_name: '</script><script>alert(1)</script>' })
+  const tag = buildBrandingScript(evil)
+  assert.ok(!tag.toLowerCase().includes('</script><script>alert'), 'must escape < in JSON')
+  assert.ok(tag.startsWith('<script>window.ORION_BRANDING='))
+  const parsed = JSON.parse(tag.replace(/^<script>window\.ORION_BRANDING=/, '').replace(/;?<\/script>$/, ''))
+  assert.strictEqual(parsed.businessName, '</script><script>alert(1)</script>')
+}
+
+// Brand palettes: hex handling, derived tints, readable ink.
+{
+  const p = buildBrandPalettes('#725796')
+  assert.strictEqual(p.light['--coral'], '#725796')
+  assert.ok(p.light['--coral-subtle'] !== p.light['--coral'], 'light tint derived')
+  assert.ok(p.light['--coral-glow'].endsWith('30'))
+  assert.ok(p.dark['--coral-glow'].endsWith('35'))
+  assert.ok(p.dark['--coral'] !== p.light['--coral'], 'dark theme lightens slightly')
+  assert.strictEqual(p.light['--on-brand'], '#ffffff')
+  const lightBrand = buildBrandPalettes('#c58a32').light['--on-brand']
+  assert.strictEqual(lightBrand, '#192320', 'light brand colors get dark ink')
+  assert.strictEqual(buildBrandPalettes('not-a-color').light['--coral'], DEFAULT_BRANDING.primaryColor, 'invalid falls back')
+
+  // Dark-tint derivation must DARKEN, not brighten (toward-black mixing).
+  const chan = (hex, i) => parseInt(hex.slice(1 + i * 2, 3 + i * 2), 16)
+  const darkPalettes = buildBrandPalettes('#4f779a').dark
+  for (const i of [0, 1, 2]) {
+    assert.ok(chan(darkPalettes['--coral-subtle'], i) < chan('#4f779a', i), 'dark coral-subtle channel darkens')
+  }
+  assert.ok(chan(darkPalettes['--coral'], 0) > chan('#4f779a', 0), 'dark coral lightens slightly toward white')
+}
+
+// Style block targets both themes.
+{
+  const css = buildBrandStyle('#4f779a')
+  assert.ok(css.startsWith('<style>'))
+  assert.ok(css.includes(':root{'))
+  assert.ok(css.includes('[data-theme="dark"]{'))
+  assert.ok(css.includes('--coral: #4f779a;'))
+}
+
+// Cached store: serves rows from a stub client, TTL-caches, survives errors.
+;(async () => {
+  let calls = 0
+  const row = { business_name: 'Store Co', support_phone: '100', primary_color: '#4f779a', updated_at: '2026-09-15T00:00:00Z' }
+  const stub = { select: async () => { calls += 1; return [row] } }
+  const store = makeBrandingStore(stub, { cacheTtlMs: 60_000 })
+  const first = await store.load()
+  assert.strictEqual(first.branding.businessName, 'Store Co')
+  assert.strictEqual(first.updatedAt, '2026-09-15T00:00:00Z')
+  await store.load()
+  assert.strictEqual(calls, 1, 'second load within TTL is cached')
+
+  const failing = makeBrandingStore({ select: async () => { throw new Error('down') } }, { cacheTtlMs: 0 })
+  const bad = await failing.load()
+  assert.strictEqual(bad.branding.businessName, 'Harbor House', 'falls back to defaults on error')
+  assert.ok(bad.error)
+
+  console.log('All bridge self-tests passed.')
+})().catch((err) => {
+  console.error(err)
+  process.exit(1)
+})

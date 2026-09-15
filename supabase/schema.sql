@@ -376,3 +376,39 @@ create policy "Authenticated operators can view audit logs"
 create policy "Authenticated operators can insert audit logs"
   on public.audit_logs for insert to authenticated
   with check (true);
+
+-- ====================================================================
+-- PORTAL BRANDING SETTINGS
+-- Single-row table (id = 1) the bridge serves to the captive portal.
+-- Guests can read it via the bridge (never directly); operators manage
+-- it from the dashboard's Settings -> Captive Portal Branding.
+-- ====================================================================
+create table if not exists public.portal_settings (
+  id integer primary key default 1 check (id = 1),
+  business_name text not null default 'Harbor House',
+  support_phone text not null default '+254 700 123 456',
+  primary_color text not null default '#d36b4d',
+  portal_title text not null default 'You''re connected — sign in',
+  portal_message text not null default 'Enter the voucher code from your receipt, or buy instant access with M-Pesa.',
+  footer_note text,
+  updated_at timestamptz not null default now(),
+  constraint primary_color_hex check (primary_color ~ '^#[0-9a-fA-F]{6}$')
+);
+
+alter table public.portal_settings enable row level security;
+
+-- The dashboard has no operator sign-in in this build (it writes with the
+-- anon key, like vouchers/packages), and branding is public-facing by
+-- definition — guests see it on the portal. Only cosmetic fields live here.
+create policy "Public can read portal branding"
+  on public.portal_settings for select to anon
+  using (true);
+
+create policy "Dashboard can update portal branding"
+  on public.portal_settings for update to anon
+  using (true) with check (true);
+
+-- The bridge (service key) reads it server-side for portal injection.
+
+-- Seed the single row (idempotent; does not clobber existing edits).
+insert into public.portal_settings (id) values (1) on conflict (id) do nothing;

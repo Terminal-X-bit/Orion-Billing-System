@@ -1324,6 +1324,7 @@ function OperatorDashboard({
   const handleSaveSettings = (newSet: HotspotSettings) => {
     setSettings(newSet)
     localStorage.setItem('orion_settings', JSON.stringify(newSet))
+    syncPortalBranding(newSet)
     saveSmsConfig({
       provider: newSet.smsProvider,
       apiKey: newSet.smsApiKey,
@@ -1337,6 +1338,53 @@ function OperatorDashboard({
     setNotice('✅ Hotspot configuration & SMS settings saved successfully!')
     window.setTimeout(() => setNotice(''), 3000)
   }
+
+  // Push portal branding fields to public.portal_settings so the MikroTik
+  // bridge injects them into the captive portal guests see. Best-effort:
+  // failures only affect the live portal, not the dashboard UI.
+  const syncPortalBranding = (s: HotspotSettings) => {
+    if (!supabase) return
+    void supabase
+      .from('portal_settings')
+      .upsert(
+        {
+          id: 1,
+          business_name: s.businessName || 'Harbor House',
+          support_phone: s.supportPhone || '+254 700 123 456',
+          primary_color: s.primaryColor || '#d36b4d',
+          portal_title: s.portalTitle || "You're connected — sign in",
+          portal_message: s.portalMessage || 'Enter the voucher code from your receipt, or buy instant access with M-Pesa.',
+        },
+        { onConflict: 'id' },
+      )
+      .then(({ error }) => {
+        if (error) console.warn('[settings] portal branding sync failed:', error.message)
+      })
+  }
+
+  // Pull the current branding from Supabase on mount so the Settings form
+  // reflects whatever the bridge is actually serving (multi-device safe).
+  useEffect(() => {
+    if (!supabase) return
+    let cancelled = false
+    supabase
+      .from('portal_settings')
+      .select('business_name,support_phone,primary_color,portal_title,portal_message')
+      .eq('id', 1)
+      .maybeSingle()
+      .then(({ data }) => {
+        if (cancelled || !data) return
+        setSettings((prev) => ({
+          ...prev,
+          businessName: data.business_name || prev.businessName,
+          supportPhone: data.support_phone || prev.supportPhone,
+          primaryColor: data.primary_color || prev.primaryColor,
+          portalTitle: data.portal_title || prev.portalTitle,
+          portalMessage: data.portal_message || prev.portalMessage,
+        }))
+      })
+    return () => { cancelled = true }
+  }, [])
 
   const handleSendVoucherSmsSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
@@ -3764,6 +3812,11 @@ function SettingsManagementView({
         {activeTab === 'portal' && (
           <div className="settings-card">
             <h2>Captive Portal & Customer Experience</h2>
+            <p style={{ margin: '-6px 0 14px', fontSize: '12px', color: 'var(--muted)' }}>
+              These fields brand the live guest portal: the MikroTik bridge injects the business name,
+              support phone, welcome texts, and brand color from here every time a guest loads the page.
+              Business name and support phone are shared with the General tab.
+            </p>
             <div className="settings-grid-2">
               <label>
                 Welcome Headline

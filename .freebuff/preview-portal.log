@@ -1,0 +1,3 @@
+[bridge] Orion MikroTik bridge starting on port 8799
+[bridge] Supabase: http://127
+[bridge] HTTP API listening on http://127.0.0.1:8799 (auth: x-bridge-key header)

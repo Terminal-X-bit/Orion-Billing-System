@@ -134,7 +134,7 @@ Run `supabase/schema.sql` (idempotent) to add the columns this bridge uses:
 - `transactions`: `amount_value`, `customer_phone`, `checkout_request_id`,
   `mpesa_receipt`, `provisioned_at`, `provider_ref`
 - `routers`: `api_port`, `api_user`, `last_synced_at`, `system_identity`
-- tables `stk_requests`, `audit_logs`
+- tables `stk_requests`, `audit_logs`, `portal_settings`
 
 ## Captive portal
 
@@ -142,6 +142,24 @@ Run `supabase/schema.sql` (idempotent) to add the columns this bridge uses:
 serves at `http://<bridge-host>:8787/portal`. Guests see it when they join the
 Wi-Fi; it matches the Orion dashboard design (DM Sans/Manrope, coral/sage
 tokens, light+dark themes with the same `orion_theme` localStorage key).
+
+### Configurable branding (Settings -> Captive Portal Branding)
+
+The portal is not hardcoded: the operator's branding lives in the
+`portal_settings` table (single row), edited from the dashboard's Settings ->
+Captive Portal Branding tab. When a guest loads `/portal`, the bridge reads the
+row (TTL-cached 30s, last-known-good on Supabase outages) and injects
+`window.ORION_BRANDING` plus a small override `<style>` before `</head>`, so
+the served page always reflects current branding — no client-side fetch, and
+the static `portal.html` keeps working standalone with built-in defaults.
+
+Configured fields: **business name** (brand block + browser tab title +
+footer), **support phone** (footer), **brand color** (recolors buttons, links,
+badges, package cards, brand mark in both light and dark themes — ink color on
+brand fills is chosen automatically for contrast), **welcome headline** and
+**subtitle message**. Guests never get access to anything beyond these
+cosmetic, sanitized fields (length-clamped, control characters stripped,
+`</script>`-safe JSON escaping, `#rrggbb`-validated color).
 
 The page offers two ways online:
 

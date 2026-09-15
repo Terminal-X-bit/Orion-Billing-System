@@ -19,7 +19,8 @@
 //   POST /pay { phone, packageId } - initiate M-Pesa STK Push
 //   GET  /pay/:checkoutRequestId - poll payment status + voucher code
 //   POST /mpesa/callback         - Daraja STK outcome webhook
-//   GET  /portal                 - captive portal login page (guests see this)
+//   GET  /portal                 - captive portal login page (guests see this;
+//                                  branded via Settings -> Portal Branding)
 //   GET  /portal.css, /portal.js - portal assets
 //
 // Run: node index.js   (config from environment or ../.env.local)
@@ -38,6 +39,7 @@ const {
   CALLBACK_TIMEOUT_MS,
 } = require('./src/daraja')
 const { generateVoucherCode } = require('./src/voucher-codes')
+const { makeBrandingStore, buildBrandingScript, buildBrandStyle } = require('./src/branding')
 
 // ---------------------------------------------------------------------------
 // Captive portal static assets (served to guests from the walled garden)
@@ -55,8 +57,33 @@ function readPortalAsset(name) {
   }
 }
 
+/**
+ * Inject operator branding (Settings -> Captive Portal Branding) into the
+ * portal HTML just before </head> as window.ORION_BRANDING. The static
+ * portal files stay static — guests always receive current branding without
+ * any client-side fetch, and it also works when Supabase is unreachable
+ * (falls back to last-known-good branding or the built-in defaults).
+ */
+async function injectBranding(htmlBody) {
+  try {
+    const { branding } = await brandingStore.load()
+    const head =
+      buildBrandingScript(branding) +
+      buildBrandStyle(branding.primaryColor) +
+      '\n'
+    const buf = Buffer.from(head)
+    const marker = '</head>'
+    const idx = htmlBody.indexOf(marker)
+    if (idx === -1) return Buffer.concat([buf, htmlBody])
+    return Buffer.concat([htmlBody.slice(0, idx), buf, htmlBody.slice(idx)])
+  } catch (err) {
+    console.warn('[portal] branding injection failed:', err && err.message)
+    return htmlBody
+  }
+}
+
 /** Serve the portal page + assets. Returns true when the request was handled. */
-function tryServePortal(req, res, pathname) {
+async function tryServePortal(req, res, pathname) {
   if (req.method !== 'GET' && req.method !== 'HEAD') return false
   const base = '/portal'
   // /portal, /portal/ and sibling assets like /portal.css, /portal.js
@@ -81,12 +108,13 @@ function tryServePortal(req, res, pathname) {
   const body = readPortalAsset(name)
   if (!body) return false
   const ext = path.extname(name)
+  const payload = ext === '.html' ? await injectBranding(body) : body
   res.writeHead(200, {
     'Content-Type': PORTAL_MIME[ext] || 'application/octet-stream',
-    'Content-Length': body.length,
+    'Content-Length': payload.length,
     'Cache-Control': 'no-store',
   })
-  res.end(req.method === 'HEAD' ? undefined : body)
+  res.end(req.method === 'HEAD' ? undefined : payload)
   return true
 }
 
@@ -141,6 +169,10 @@ if (!process.env.BRIDGE_API_KEY) {
 }
 
 const db = makeClient({ url: config.supabaseUrl, serviceKey: config.supabaseServiceKey })
+
+// Portal branding (Settings -> Captive Portal Branding), TTL-cached so each
+// guest request doesn't hit Supabase; falls back to last-known-good values.
+const brandingStore = makeBrandingStore(db, { cacheTtlMs: 30_000 })
 
 // Daraja client is only created when credentials are present; /pay returns a
 // friendly 503 instead of crashing when payments are not configured.
@@ -502,7 +534,7 @@ const server = http.createServer(async (req, res) => {
     const parts = url.pathname.split('/').filter(Boolean)
 
     // Captive portal page + assets (no auth; RouterOS walled-garden traffic)
-    if (tryServePortal(req, res, url.pathname)) return
+    if (await tryServePortal(req, res, url.pathname)) return
 
     // Public captive-portal endpoints (no bridge key; rate limited per IP).
     const ip =

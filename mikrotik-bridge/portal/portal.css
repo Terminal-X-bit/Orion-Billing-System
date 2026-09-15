@@ -27,6 +27,9 @@
   --auth-input-bg: #ffffff;
   --danger: #c94a32;
   --danger-subtle: #fde8e4;
+  /* Ink used on top of brand-colored fills; overridden by the bridge's
+     injected branding style so light brand colors stay readable. */
+  --on-brand: #ffffff;
 }
 
 [data-theme="dark"] {
@@ -111,7 +114,7 @@ a { color: var(--green); }
   width: 31px;
   height: 31px;
   border-radius: 9px;
-  color: #fff;
+  color: var(--on-brand, #fff);
   display: grid;
   place-items: center;
   background: var(--coral);
@@ -184,7 +187,7 @@ input::placeholder { color: var(--muted-light); }
 
 .button.primary {
   background: var(--coral);
-  color: white;
+  color: var(--on-brand, #fff);
   box-shadow: 0 5px 12px var(--coral-glow);
 }
 

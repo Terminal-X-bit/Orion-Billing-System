@@ -68,6 +68,10 @@
     buyBtn: $('buyBtn'),
     errorBox: $('errorBox'),
     errorMsg: $('errorMsg'),
+    brandName: $('brandName'),
+    authTitle: $('authTitle'),
+    authSub: $('authSub'),
+    footerNote: $('footerNote'),
     viewAuth: $('view-auth'),
     viewWaiting: $('view-waiting'),
     viewSuccess: $('view-success'),
@@ -120,6 +124,57 @@
     var n = Number(amount)
     return 'KSh ' + (isFinite(n) ? n.toLocaleString() : String(amount))
   }
+
+  // --------------------------------------------------------------------------
+  // Operator branding (window.ORION_BRANDING injected by the bridge from
+  // Settings -> Captive Portal Branding). Everything has a safe fallback.
+  // --------------------------------------------------------------------------
+
+  function applyBranding() {
+    var b = window.ORION_BRANDING || {}
+
+    // Business name: keep the trailing coral dot on the last word.
+    if (typeof b.businessName === 'string' && b.businessName.trim()) {
+      var words = b.businessName.trim().split(/\s+/)
+      var last = words.pop()
+      els.brandName.innerHTML = ''
+      if (words.length > 0) {
+        els.brandName.appendChild(document.createTextNode(words.join(' ') + ' '))
+      }
+      var accentWord = document.createElement('span')
+      accentWord.textContent = last
+      var dot = document.createElement('span')
+      dot.className = 'brand-dot'
+      dot.textContent = '.'
+      accentWord.appendChild(dot)
+      els.brandName.appendChild(accentWord)
+    }
+
+    // Headline + subtitle come from the portal tab; fall back to the
+    // static HTML defaults when branding is absent.
+    if (b.portalTitle) els.authTitle.textContent = b.portalTitle
+    if (b.portalMessage) els.authSub.textContent = b.portalMessage
+
+    // Footer: custom note when set, otherwise name / payment / support line.
+    if (typeof b.footerNote === 'string' && b.footerNote.trim()) {
+      els.footerNote.textContent = b.footerNote.trim()
+    } else {
+      var footerParts = []
+      if (b.businessName) footerParts.push(b.businessName + ' Guest Wi-Fi')
+      footerParts.push('Pay via M-Pesa')
+      footerParts.push('Support: ' + (b.supportPhone || '0700 000 000'))
+      els.footerNote.textContent = footerParts.join(' · ')
+    }
+
+    // Browser tab title follows the business name.
+    var titleTag = document.getElementById('portalTitleTag')
+    if (titleTag && b.businessName) {
+      titleTag.textContent = b.businessName + ' Wi-Fi — Sign in'
+      document.title = titleTag.textContent
+    }
+  }
+
+  applyBranding()
 
   function pkgPrice(pkg) { return Number(pkg.price_amount) || 0 }
 
