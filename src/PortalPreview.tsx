@@ -9,6 +9,7 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 import { ExternalLink, Monitor, QrCode, Smartphone, X } from 'lucide-react'
 import { buildPortalPreviewDocument, type PortalBrandingPreview } from './portalPreviewDoc'
 import { qrSvg } from './qr'
+import { usePortalReachability } from './portalReachability'
 import { getPortalUrlOverride, resolvePortalUrl, safeHttpUrl, setPortalUrlOverride } from './portalUrl'
 import { getInitialTheme, type Theme } from './useTheme'
 
@@ -45,6 +46,9 @@ export function PortalPreview({ branding }: Props) {
     () => buildPortalPreviewDocument(JSON.parse(debouncedKey) as PortalBrandingPreview),
     [debouncedKey],
   )
+
+  // Is the live portal (bridge) actually serving guests right now?
+  const reach = usePortalReachability()
 
   // Live portal URL: operator draft (validated live) or best-known default.
   const portalUrl = useMemo(
@@ -86,7 +90,26 @@ export function PortalPreview({ branding }: Props) {
         }}
       >
         <div>
-          <strong style={{ fontSize: '13px' }}>Live portal preview</strong>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap' }}>
+            <strong style={{ fontSize: '13px' }}>Live portal preview</strong>
+            <span
+              className={`live-pill portal-status-pill ${reach.state}`}
+              title={
+                reach.state === 'online'
+                  ? `Portal is reachable at ${reach.url}`
+                  : reach.state === 'offline'
+                    ? `No response from ${reach.url} — is the bridge running?`
+                    : 'Checking portal reachability…'
+              }
+            >
+              <i />{' '}
+              {reach.state === 'online'
+                ? 'Portal online'
+                : reach.state === 'offline'
+                  ? 'Portal offline'
+                  : 'Checking…'}
+            </span>
+          </div>
           <p style={{ margin: '2px 0 0', fontSize: '11px', color: 'var(--muted)' }}>
             Exactly what guests see — updates as you type, before you save.
           </p>

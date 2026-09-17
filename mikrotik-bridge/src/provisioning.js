@@ -138,7 +138,7 @@ async function ensurePackageProfile(routerCfg, pkg, { sessionTimeoutMin = 1440, 
 async function ensureVoucherUser(routerCfg, voucher, pkg, { sessionTimeoutMin = 1440 } = {}) {
   const profile = pkg ? profileNameFor(pkg) : 'default'
   const uptime = pkg
-    ? durationToUptime(pkg.duration_display, (Number(sessionTimeoutMin) || 1440) * 60)
+    ? durationToUptime(pkg.duration, (Number(sessionTimeoutMin) || 1440) * 60)
     : formatUptime((Number(sessionTimeoutMin) || 1440) * 60)
   const bytesQuota = pkg ? dataQuotaToBytes(pkg.data_limit) : null
   const comment = `orion:${voucher.id}`

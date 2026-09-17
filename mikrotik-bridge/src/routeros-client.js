@@ -10,6 +10,7 @@
 
 const net = require('net')
 const tls = require('tls')
+const crypto = require('crypto')
 const { EventEmitter } = require('events')
 
 const CONTINUATION = 0x80
@@ -54,6 +55,7 @@ class RouterOsClient extends EventEmitter {
     this.buffer = Buffer.alloc(0)
     this.doneWaiters = [] // { resolve, reject, rows, trap, timer }
     this.fatal = null
+    this.queueTail = null // serializes commands: RouterOS replies strictly in order
   }
 
   _readLengthAt(offset) {
@@ -141,7 +143,11 @@ class RouterOsClient extends EventEmitter {
           row[key] = eq === -1 ? '' : word.slice(eq + 1)
         }
       }
-      const waiter = this.doneWaiters[this.doneWaiters.length - 1]
+      // FIFO routing: RouterOS answers commands strictly in the order they
+      // were written (a command's full reply is sent before the next one
+      // starts), and writeSentence serializes writes, so rows always belong
+      // to the oldest unsettled waiter.
+      const waiter = this.doneWaiters[0]
       if (!waiter) return
       if (type === '!re') waiter.rows.push(row)
       else waiter.trap = waiter.trap || row.message || 'RouterOS error'
@@ -151,6 +157,19 @@ class RouterOsClient extends EventEmitter {
       const waiter = this.doneWaiters.shift()
       if (!waiter) return
       clearTimeout(waiter.timer)
+      // !done can carry trailing attributes: =ret=<challenge> for legacy
+      // login, =ret=<new .id> after /add. Parse them like !re rows.
+      if (words.length > 1) {
+        const row = {}
+        for (const word of words.slice(1)) {
+          if (word.startsWith('=')) {
+            const eq = word.indexOf('=', 1)
+            const key = word.slice(1, eq === -1 ? undefined : eq)
+            row[key] = eq === -1 ? '' : word.slice(eq + 1)
+          }
+        }
+        waiter.rows.push(row)
+      }
       if (waiter.trap) waiter.reject(new Error(waiter.trap))
       else waiter.resolve(waiter.rows)
     }
@@ -203,8 +222,9 @@ class RouterOsClient extends EventEmitter {
           this.emit('close')
         })
 
-        // Modern RouterOS (6.43+) accepts plaintext name/password in one sentence.
-        this.writeSentence('/login', `=name=${this.user}`, `=password=${this.password}`)
+        // Modern RouterOS (6.43+) accepts plaintext name/password in one
+        // sentence; older firmware needs the MD5 challenge/response dance.
+        this._login()
           .then(() => {
             clearTimeout(loginTimer)
             settled = true
@@ -218,26 +238,72 @@ class RouterOsClient extends EventEmitter {
     })
   }
 
-  writeSentence(command, ...words) {
-    return new Promise((resolve, reject) => {
-      if (!this.connected || !this.socket) {
-        reject(new Error('RouterOS socket not connected'))
-        return
+  /**
+   * Log in: try the modern one-sentence login first, then fall back to the
+   * legacy challenge/response MD5 handshake used by RouterOS < 6.43.
+   */
+  async _login() {
+    try {
+      await this.writeSentence('/login', `=name=${this.user}`, `=password=${this.password}`)
+      return { mode: 'plaintext' }
+    } catch (plainErr) {
+      try {
+        // Legacy handshake: bare /login makes the router reply !done with
+        // =ret=<challenge>; respond with 00 + md5(0x00 + password + challenge).
+        const challengeRows = await this.writeSentence('/login')
+        const challengeHex = challengeRows[0] && challengeRows[0].ret
+        if (!challengeHex) throw new Error('router returned no login challenge')
+        const md5 = crypto.createHash('md5')
+        md5.update(
+          Buffer.concat([
+            Buffer.from([0x00]),
+            Buffer.from(this.password, 'utf8'),
+            Buffer.from(challengeHex, 'utf8'),
+          ])
+        )
+        await this.writeSentence('/login', `=name=${this.user}`, `=response=00${md5.digest('hex')}`)
+        return { mode: 'md5' }
+      } catch (legacyErr) {
+        throw new Error(`${plainErr.message} (legacy MD5 fallback also failed: ${legacyErr.message})`)
       }
-      const waiter = { rows: [], trap: null, resolve, reject, timer: null }
-      this.doneWaiters.push(waiter)
-      const buf = Buffer.concat([
-        encodeWord(command),
-        ...words.filter((w) => w !== undefined && w !== null).map(encodeWord),
-        EMPTY,
-      ])
-      this.socket.write(buf)
-      waiter.timer = setTimeout(() => {
-        const idx = this.doneWaiters.indexOf(waiter)
-        if (idx !== -1) this.doneWaiters.splice(idx, 1)
-        reject(new Error(`RouterOS command "${command}" timed out after ${this.timeoutMs}ms`))
-      }, this.timeoutMs)
-    })
+    }
+  }
+
+  /**
+   * Write one command sentence and resolve with its reply.
+   * Commands are serialized through an internal queue so a caller using
+   * Promise.all can never interleave replies (the RouterOS API is not
+   * multiplexed). A timed-out command kills the connection, because its late
+   * reply would otherwise be misattributed to the next queued command.
+   */
+  writeSentence(command, ...words) {
+    const attempt = () =>
+      new Promise((resolve, reject) => {
+        if (!this.connected || !this.socket) {
+          reject(new Error('RouterOS socket not connected'))
+          return
+        }
+        const waiter = { rows: [], trap: null, resolve, reject, timer: null }
+        this.doneWaiters.push(waiter)
+        const buf = Buffer.concat([
+          encodeWord(command),
+          ...words.filter((w) => w !== undefined && w !== null).map(encodeWord),
+          EMPTY,
+        ])
+        this.socket.write(buf)
+        waiter.timer = setTimeout(() => {
+          const idx = this.doneWaiters.indexOf(waiter)
+          if (idx !== -1) this.doneWaiters.splice(idx, 1)
+          reject(new Error(`RouterOS command "${command}" timed out after ${this.timeoutMs}ms`))
+          // The reply may still arrive; tear down so it cannot poison the
+          // next command's reply stream.
+          this._cleanup()
+        }, this.timeoutMs)
+      })
+    const prev = this.queueTail || Promise.resolve()
+    const result = prev.then(attempt, attempt)
+    this.queueTail = result.catch(() => {})
+    return result
   }
 
   /** Run a command and return all !re rows (resolves on !done). */

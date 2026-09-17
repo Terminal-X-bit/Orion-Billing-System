@@ -11,6 +11,8 @@ import {
   Wifi, WifiOff, X, Zap, MessageCircle, SendHorizonal, Terminal, CheckCheck,
 } from 'lucide-react'
 import { supabase, getSupabaseConfig, setSupabaseConfig } from './lib/supabase'
+import { bridgeApi, getBridgeConfig, setBridgeConfig, getBridgeRouterId, setBridgeRouterId, formatBytes } from './lib/bridge'
+import { useMikrotik } from './hooks/useMikrotik'
 import { useTheme } from './useTheme'
 import { PortalPreview } from './PortalPreview'
 import {
@@ -28,10 +30,13 @@ import {
   DEFAULT_SMS_CONFIG,
 } from './lib/smsService'
 
-type Session = { id?: string; name: string; device: string; location: string; plan: string; usage: string; progress: number; color: string }
+type Session = { id?: string; name: string; device: string; location: string; plan: string; usage: string; progress: number; color: string; live?: boolean }
+type LiveSession = Session & { id: string; live: true }
 type Transaction = { id: string; customer: string; phone?: string; method: string; package: string; amount: string; status: string; time: string; receipt?: string }
 type PackageItem = { id?: string; name: string; sales: string; amount: string; width: string; color: string }
 type RouterItem = { id?: string; name: string; value: string; status: string }
+
+const SESSION_COLORS = ['#317d75', '#d36b4d', '#4d7dd3', '#8a63c9', '#c99a3f', '#5ba345']
 
 export type OperatorUser = {
   id: string
@@ -986,6 +991,46 @@ function OperatorDashboard({
   const [dbConnected, setDbConnected] = useState(false)
   const [syncing, setSyncing] = useState(false)
 
+  // Live MikroTik bridge state (polls the on-prem bridge; real RouterOS data).
+  const mikrotik = useMikrotik()
+  const [liveSessions, setLiveSessions] = useState<LiveSession[]>([])
+  const [bridgeSyncing, setBridgeSyncing] = useState(false)
+
+  // Project live router sessions into the dashboard session list so the
+  // Overview table reflects the actual hotspot, not demo rows.
+  useEffect(() => {
+    if (mikrotik.sessions.length === 0) return
+    const mapped: LiveSession[] = mikrotik.sessions.map((s, i) => ({
+      id: s.session_id,
+      name: s.username,
+      device: s.login_by === 'mac' ? 'MAC login' : 'Hotspot login',
+      location: `${s.server || 'hotspot'} · ${s.address}`,
+      plan: s.profile || 'hotspot',
+      usage: `${formatBytes(s.bytes_in + s.bytes_out)} · ${s.uptime}`,
+      progress: Math.min(100, Math.round(((s.bytes_in + s.bytes_out) % (1024 ** 3)) / (1024 ** 2))),
+      color: SESSION_COLORS[i % SESSION_COLORS.length],
+      live: true,
+    }))
+    setLiveSessions(mapped)
+  }, [mikrotik.sessions])
+
+  // Reflect live router health in the Network health panel.
+  useEffect(() => {
+    const h = mikrotik.health
+    if (!h) return
+    setRoutersList([
+      { name: `MikroTik · ${h.identity}`, value: 'online', status: 'good' },
+      { name: 'Active interfaces', value: `${h.interfaces_running} / ${h.interfaces_total} up`, status: h.interfaces_running === h.interfaces_total ? 'good' : 'warn' },
+      { name: 'Router CPU load', value: `${h.cpu_load}% · ${h.free_memory_mb} MB free`, status: h.cpu_load < 60 ? 'good' : 'warn' },
+      { name: 'Router traffic', value: `↓${formatBytes(h.bytes_received)} ↑${formatBytes(h.bytes_sent)}`, status: 'good' },
+    ])
+  }, [mikrotik.health])
+
+  // When the bridge reports live RouterOS sessions they are the truth; the
+  // demo/DB rows are only a fallback while the bridge is unreachable.
+  const displaySessions: Session[] = liveSessions.length > 0 ? liveSessions : sessions
+  const liveSessionCount = liveSessions.length > 0 ? liveSessions.length : sessions.length + 146
+
   // New Router Form State
   const [newRouterName, setNewRouterName] = useState('')
   const [newRouterIp, setNewRouterIp] = useState('')
@@ -1220,6 +1265,14 @@ function OperatorDashboard({
   }, [])
 
   const disconnect = async (session: Session) => {
+    // Live RouterOS session: kick it on the router via the bridge.
+    if (session.live && session.id) {
+      const ok = await mikrotik.kick(session.id, session.name)
+      setNotice(ok ? `${session.name} disconnected from the router` : `Failed to disconnect ${session.name}`)
+      window.setTimeout(() => setNotice(''), 2600)
+      return
+    }
+
     const client = supabase
     if (client && session.id) {
       try {
@@ -1264,6 +1317,17 @@ function OperatorDashboard({
         await client.from('vouchers').insert(payload)
       } catch (e) {}
     }
+
+    // Nudge the bridge to provision the new vouchers as RouterOS hotspot
+    // users right away (otherwise the next poll picks them up within 30s).
+    setBridgeSyncing(true)
+    bridgeApi
+      .syncNow()
+      .then(() => {
+        setBridgeSyncing(false)
+        setNotice((n) => `${n} · Queued on the MikroTik router`)
+      })
+      .catch(() => setBridgeSyncing(false))
 
     setVouchersList((prev) => [...newVouchers, ...prev])
     setShowVoucher(false)
@@ -1450,7 +1514,22 @@ function OperatorDashboard({
   }
 
   // Router Handlers
-  const handlePingRouter = (router: RouterDevice) => {
+  const handlePingRouter = async (router: RouterDevice) => {
+    // Real ping from the router itself when the bridge knows this router.
+    if (mikrotik.routerId && mikrotik.routerId === router.id) {
+      try {
+        const result = await bridgeApi.pingFromRouter(mikrotik.routerId, router.ip_address, 4)
+        setNotice(
+          `Ping ${router.name} (${router.ip_address}): ${result.avg_ms !== null ? `${result.avg_ms.toFixed(1)}ms avg` : 'no reply'} · ${result.received}/${result.sent} received`
+        )
+        window.setTimeout(() => setNotice(''), 3500)
+        return
+      } catch (err: any) {
+        setNotice(`Ping failed: ${err.message}`)
+        window.setTimeout(() => setNotice(''), 3500)
+        return
+      }
+    }
     const newPing = Math.floor(Math.random() * 4) + 1
     setRouterDevices((prev) =>
       prev.map((r) => (r.id === router.id ? { ...r, ping_ms: newPing } : r))
@@ -1458,8 +1537,26 @@ function OperatorDashboard({
     setNotice(`Ping to ${router.name} (${router.ip_address}): ${newPing}ms (Normal)`)
     window.setTimeout(() => setNotice(''), 3000)
   }
-
-  const handleRebootRouter = (router: RouterDevice) => {
+  const handleRebootRouter = async (router: RouterDevice) => {
+    // Real RouterOS reboot via the bridge for the live router.
+    if (mikrotik.routerId && mikrotik.routerId === router.id) {
+      try {
+        await bridgeApi.rebootRouter(mikrotik.routerId)
+        setNotice(`Rebooting ${router.name}... RouterOS restarting`)
+        setRouterDevices((prev) =>
+          prev.map((r) => (r.id === router.id ? { ...r, status: 'warn', uptime: '0m' } : r))
+        )
+        window.setTimeout(() => {
+          setNotice(`✅ ${router.name} reboot command sent`)
+          window.setTimeout(() => setNotice(''), 3500)
+          void mikrotik.refresh()
+        }, 2200)
+      } catch (err: any) {
+        setNotice(`Reboot failed: ${err.message}`)
+        window.setTimeout(() => setNotice(''), 3500)
+      }
+      return
+    }
     setNotice(`Rebooting ${router.name}... RouterOS restarting`)
     setRouterDevices((prev) =>
       prev.map((r) => (r.id === router.id ? { ...r, status: 'warn', uptime: '0m' } : r))
@@ -1847,7 +1944,7 @@ function OperatorDashboard({
               <section className="metrics-grid">
                 <Metric label="Total revenue" value="KSh 284,650" change="18.4%" trend="up" icon={CircleDollarSign} accent="green" />
                 <Metric label="Active customers" value={String(customersList.length + 1278)} change="12.6%" trend="up" icon={Users} accent="orange" />
-                <Metric label="Live sessions" value={String(sessions.length + 146)} change="4.2%" trend="up" icon={Wifi} accent="teal" />
+                <Metric label="Live sessions" value={String(liveSessionCount)} change={liveSessions.length > 0 ? 'Live from router' : '4.2%'} trend="up" icon={Wifi} accent="teal" />
                 <Metric label="Avg. session time" value="3h 42m" change="8.1%" trend="down" icon={Gauge} accent="blue" />
               </section>
 
@@ -1900,8 +1997,8 @@ function OperatorDashboard({
                 <section className="panel sessions-panel">
                   <div className="panel-heading">
                     <div>
-                      <h2>Live sessions <span className="heading-badge">{sessions.length + 146}</span></h2>
-                      <p>Customers currently connected</p>
+                      <h2>Live sessions <span className="heading-badge">{liveSessionCount}</span></h2>
+                      <p>{liveSessions.length > 0 ? 'Connected on the MikroTik router now' : 'Customers currently connected'}</p>
                     </div>
                     <button className="text-button" onClick={() => setActiveNav('Customers')}>
                       View all <ArrowUpRight size={15} />
@@ -1918,7 +2015,7 @@ function OperatorDashboard({
                         </tr>
                       </thead>
                       <tbody>
-                        {sessions.map((session) => (
+                        {displaySessions.map((session) => (
                           <tr key={session.id ?? session.name}>
                             <td>
                               <div className="customer-cell">
@@ -3895,6 +3992,8 @@ function SettingsManagementView({
         )}
 
         {activeTab === 'router' && (
+          <>
+          <MikrotikBridgeCard />
           <div className="settings-card">
             <h2>MikroTik RouterOS & Gateway Settings</h2>
             <div className="settings-grid-2">
@@ -3939,6 +4038,7 @@ function SettingsManagementView({
               <Save size={16} /> Save Network Config
             </button>
           </div>
+          </>
         )}
 
         {activeTab === 'payments' && (
@@ -3990,6 +4090,120 @@ function SettingsManagementView({
           </div>
         )}
       </form>
+    </div>
+  )
+}
+
+// Bridge configuration + live status card for Settings -> MikroTik. Owns its
+// own state because it is only mounted when the router tab is active.
+function MikrotikBridgeCard() {
+  const cfg = getBridgeConfig()
+  const [url, setUrl] = useState(cfg.url)
+  const [apiKey, setApiKey] = useState(cfg.apiKey)
+  const [routerId, setRouterIdLocal] = useState(getBridgeRouterId())
+  const [saved, setSaved] = useState('')
+
+  const mikrotik = useMikrotik()
+
+  const handleSave = () => {
+    setBridgeConfig(url, apiKey)
+    setBridgeRouterId(routerId)
+    setSaved('Saved — testing connection...')
+    void mikrotik.refresh()
+    window.setTimeout(() => setSaved(''), 2500)
+  }
+
+  const handleTest = async () => {
+    setSaved('Testing...')
+    // refresh() resolves with THIS probe round's outcome, so the message
+    // reflects the test that just ran — not a previous round's error.
+    const outcome = await mikrotik.refresh()
+    setSaved(outcome.ok ? '✅ Bridge reachable' : `❌ ${outcome.error}`)
+    window.setTimeout(() => setSaved(''), 3500)
+  }
+
+  const handleSyncNow = async () => {
+    setSaved('Syncing...')
+    try {
+      await bridgeApi.syncNow()
+      setSaved('✅ Sync pass queued on the bridge')
+    } catch (err: any) {
+      setSaved(`❌ ${err.message}`)
+    }
+    window.setTimeout(() => setSaved(''), 3500)
+  }
+
+  return (
+    <div className="settings-card">
+      <h2>MikroTik Bridge (Live Router Connection)</h2>
+      <p className="settings-hint">
+        The bridge service runs on your hotspot network, speaks the RouterOS API directly, and
+        provisions packages, vouchers, and payments onto the router. Start it with
+        <code> node mikrotik-bridge/index.js</code>.
+      </p>
+      <div className="settings-grid-2">
+        <label>
+          Bridge URL
+          <input
+            type="text"
+            value={url}
+            onChange={(e) => setUrl(e.target.value)}
+            placeholder="http://192.168.88.10:8787"
+          />
+        </label>
+        <label>
+          Bridge API Key (x-bridge-key)
+          <input
+            type="password"
+            value={apiKey}
+            onChange={(e) => setApiKey(e.target.value)}
+            placeholder="Value of BRIDGE_API_KEY in the bridge .env"
+          />
+        </label>
+        <label>
+          Default Router ID (BRIDGE_DEFAULT_ROUTER_ID)
+          <input
+            type="text"
+            value={routerId}
+            onChange={(e) => setRouterIdLocal(e.target.value)}
+            placeholder="UUID of the router row in Supabase"
+          />
+        </label>
+      </div>
+      <div className="bridge-status-row">
+        <span className={`live-pill ${mikrotik.status ? '' : 'offline'}`}>
+          <i /> {mikrotik.status ? 'Bridge online' : 'Bridge offline'}
+        </span>
+        {mikrotik.status && (
+          <span className="bridge-meta">
+            Polls: {mikrotik.status.polls} · Errors: {mikrotik.status.errors} · Last poll:{' '}
+            {mikrotik.status.lastPollAt ? new Date(mikrotik.status.lastPollAt).toLocaleTimeString() : '—'}
+          </span>
+        )}
+      </div>
+      {mikrotik.health && (
+        <div className="bridge-health-grid">
+          <span>Identity: <strong>{mikrotik.health.identity}</strong></span>
+          <span>RouterOS: <strong>{mikrotik.health.version}</strong></span>
+          <span>Board: <strong>{mikrotik.health.board_name}</strong></span>
+          <span>CPU: <strong>{mikrotik.health.cpu_load}%</strong></span>
+          <span>Memory: <strong>{mikrotik.health.free_memory_mb} MB free</strong></span>
+          <span>Uptime: <strong>{mikrotik.health.uptime}</strong></span>
+        </div>
+      )}
+      {mikrotik.lastError && <p className="bridge-error">⚠ {mikrotik.lastError}</p>}
+      <div className="settings-actions-row">
+        <button className="button primary" type="button" onClick={handleSave}>
+          <Save size={16} /> Save bridge config
+        </button>
+        <button className="button secondary" type="button" onClick={handleTest}>
+          <Radio size={16} /> Test connection
+        </button>
+        <button className="button secondary" type="button" onClick={handleSyncNow} disabled={!mikrotik.status}>
+          <RefreshCw size={16} /> Sync now
+        </button>
+        {saved && <span className="bridge-saved-note">{saved}</span>}
+      </div>
     </div>
   )
 }

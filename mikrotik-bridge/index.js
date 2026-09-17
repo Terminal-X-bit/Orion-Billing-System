@@ -572,6 +572,13 @@ const server = http.createServer(async (req, res) => {
       return
     }
 
+    // POST /sync - run one provisioning/sync pass immediately (dashboard button)
+    if (req.method === 'POST' && url.pathname === '/sync') {
+      void pollOnce()
+      sendJson(res, 200, { ok: true, message: 'Sync pass started' })
+      return
+    }
+
     // /sessions/:routerId
     if (req.method === 'GET' && parts[0] === 'sessions' && parts[1] && parts.length === 2) {
       const routerCfg = await getRouter(parts[1])

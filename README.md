@@ -93,7 +93,9 @@ MikroTik RouterOS so the router enforces what the operators sell:
   transaction, mints an access voucher, and provisions it on the router —
   the guest is online without operator involvement.
 - The dashboard can query live sessions, kick users, ping/reboot routers, and
-  block customers through a small authenticated HTTP API.
+  block customers through a small authenticated HTTP API. Settings →
+  MikroTik & Network configures the bridge URL/API key and shows live router
+  health (identity, RouterOS version, CPU, memory, uptime, sessions).
 
 Setup: run `supabase/schema.sql` (adds provisioning columns), then configure
 `mikrotik-bridge/.env` from its `.env.example` and start it with `npm start`.
