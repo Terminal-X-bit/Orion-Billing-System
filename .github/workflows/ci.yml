@@ -1,0 +1,179 @@
+# CI for the Orion hotspot billing stack.
+#
+# Three apps, one workflow:
+#   * dashboard (Vite/React): bun install -> tsc -b -> bun test -> vite build
+#     (the docker build also type-checks via `tsc -b` inside `bun run build`)
+#   * bridge (Node, zero-dep): node --check on every source file + selftest
+#   * database: a real restore drill — apply the schema to vanilla Postgres,
+#     back it up with scripts/db/backup.sh, restore + verify with
+#     scripts/db/restore.sh --verify-only. An unverified backup is just a
+#     file; this proves the procedure works on every push.
+#
+# Docker images build on every push; main also publishes them to GHCR.
+
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  BUN_VERSION: 1.2.4
+
+jobs:
+  dashboard:
+    name: Dashboard — typecheck, test, build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: ${{ env.BUN_VERSION }}
+
+      - name: Install dependencies
+        run: bun install --frozen-lockfile
+
+      - name: Typecheck + build (tsc -b && vite build)
+        run: bun run build
+
+      - name: Unit tests (bun test)
+        run: bun test
+
+      - name: Docker build
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: ./Dockerfile
+          push: false
+          load: true
+          tags: orion-dashboard:ci
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+  bridge:
+    name: Bridge — syntax check, selftest, image build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      # Loop instead of the package.json `check` script so new src/ files are
+      # covered without having to remember to extend a hand-written list.
+      - name: Syntax check every bridge source file
+        run: |
+          for f in mikrotik-bridge/index.js mikrotik-bridge/src/*.js; do
+            echo "node --check $f"
+            node --check "$f"
+          done
+
+      - name: Selftest
+        run: node mikrotik-bridge/test/selftest.js
+
+      - name: Docker build
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: ./mikrotik-bridge/Dockerfile
+          push: false
+          load: true
+          tags: orion-bridge:ci
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+  db-restore-drill:
+    name: Database — backup + restore drill
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: postgres
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    steps:
+      - uses: actions/checkout@v4
+
+      # psql/pg_dump/pg_restore are preinstalled on ubuntu-latest runners.
+      - name: Apply Supabase compatibility shim
+        run: |
+          psql "postgresql://postgres:postgres@localhost:5432/postgres" \
+            -v ON_ERROR_STOP=1 -f supabase/local-restore-shim.sql
+
+      - name: Apply schema
+        run: |
+          psql "postgresql://postgres:postgres@localhost:5432/postgres" \
+            -v ON_ERROR_STOP=1 -f supabase/schema.sql
+
+      - name: Backup (scripts/db/backup.sh)
+        run: |
+          scripts/db/backup.sh \
+            "postgresql://postgres:postgres@localhost:5432/postgres" \
+            --out /tmp/orion-backups --keep 3
+
+      - name: Restore + verify into a scratch database
+        run: |
+          scripts/db/restore.sh /tmp/orion-backups/orion-*.dump \
+            "postgresql://postgres:postgres@localhost:5432/postgres" \
+            --verify-only
+
+  publish:
+    name: Publish images to GHCR
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    needs: [dashboard, bridge, db-restore-drill]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Compute lowercase image names (GHCR requires lowercase)
+        id: names
+        run: |
+          echo "dashboard=ghcr.io/${GITHUB_REPOSITORY,,}/dashboard" >> "$GITHUB_OUTPUT"
+          echo "bridge=ghcr.io/${GITHUB_REPOSITORY,,}/bridge" >> "$GITHUB_OUTPUT"
+
+      - uses: docker/setup-buildx-action@v3
+
+      - uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Build + push dashboard image
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: ./Dockerfile
+          push: true
+          tags: |
+            ${{ steps.names.outputs.dashboard }}:latest
+            ${{ steps.names.outputs.dashboard }}:${{ github.sha }}
+          cache-from: type=gha
+
+      - name: Build + push bridge image
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: ./mikrotik-bridge/Dockerfile
+          push: true
+          tags: |
+            ${{ steps.names.outputs.bridge }}:latest
+            ${{ steps.names.outputs.bridge }}:${{ github.sha }}
+          cache-from: type=gha

@@ -1,0 +1,7 @@
+# Bun runtime/test configuration.
+
+[test]
+# test.setup.ts registers a happy-dom window/document before any test runs
+# (React DOM needs one) and flags React's act() test environment. This keeps
+# the suite on the already-bundled Bun runtime with no jsdom dependency.
+preload = ["./test.setup.ts"]

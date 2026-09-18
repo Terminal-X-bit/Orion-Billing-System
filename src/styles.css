@@ -1123,6 +1123,22 @@ th:first-child, td:first-child {
   top: 13px;
 }
 
+/* Full-width toggle for the package panel (side-by-side reference). */
+.modal-expand {
+  position: absolute;
+  right: 44px;
+  top: 13px;
+  border: 0;
+  background: transparent;
+  color: var(--muted);
+  padding: 2px;
+  line-height: 0;
+}
+
+.modal-expand:hover {
+  color: var(--ink);
+}
+
 .modal-icon {
   width: 43px;
   height: 43px;
@@ -2715,4 +2731,25 @@ th:first-child, td:first-child {
   border-radius: 5px;
   padding: 1px 6px;
   font-size: 11.5px;
+}
+
+/* --- Package panel (Customize Plan) ------------------------------------------
+   Vertically scrollable body: the panel tops out at the viewport height so
+   the form moves up/down inside it; the header stays pinned. */
+.package-modal {
+  display: flex;
+  flex-direction: column;
+  max-height: calc(100vh - 40px);
+  padding-bottom: 21px;
+}
+
+.package-modal .modal-head {
+  flex: 0 0 auto;
+}
+
+.package-modal .modal-scroll {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+  padding-right: 6px;
 }

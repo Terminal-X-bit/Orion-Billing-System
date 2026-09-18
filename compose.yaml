@@ -1,0 +1,61 @@
+# Local/edge deployment for the Orion hotspot billing stack.
+#
+#   dashboard  — built SPA behind nginx; serves the operator UI on :8080 and
+#                proxies /portal* to the bridge (shared origin, no CORS).
+#   bridge     — MikroTik bridge: billing DB <-> RouterOS provisioning,
+#                captive portal, M-Pesa (Daraja) flows on :8787.
+#
+# Supabase is external (hosted) — no database container here.
+#
+# Secrets come from git-ignored env files (compose substitution + container
+# env). Copy deploy/env.templates and fill them in:
+#   dashboard.env  — VITE_SUPABASE_URL, VITE_SUPABASE_ANON_KEY (build args)
+#   bridge.env     — SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY, BRIDGE_API_KEY,
+#                    MIKROTIK_*, MPESA_*
+#
+#   docker compose --env-file dashboard.env up -d --build
+#
+# The bridge must stay reachable from the MikroTik router's hotspot network
+# (router-login.html points guests at this host) — publish 8787 on the LAN
+# interface, not just localhost.
+
+name: orion
+
+services:
+  bridge:
+    build:
+      context: .
+      dockerfile: mikrotik-bridge/Dockerfile
+    env_file: bridge.env
+    environment:
+      # Explicit mapping (instead of bare substitution) so a missing var in
+      # bridge.env fails loudly inside the container, not silently empty.
+      SUPABASE_URL: ${SUPABASE_URL}
+      SUPABASE_SERVICE_ROLE_KEY: ${SUPABASE_SERVICE_ROLE_KEY}
+      BRIDGE_API_KEY: ${BRIDGE_API_KEY}
+      MIKROTIK_API_USER: ${MIKROTIK_API_USER}
+      MIKROTIK_API_PASSWORD: ${MIKROTIK_API_PASSWORD}
+      MPESA_ENVIRONMENT: ${MPESA_ENVIRONMENT:-sandbox}
+    restart: unless-stopped
+    ports:
+      - "8787:8787"
+    networks: [edge]
+
+  dashboard:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      args:
+        VITE_SUPABASE_URL: ${VITE_SUPABASE_URL}
+        VITE_SUPABASE_ANON_KEY: ${VITE_SUPABASE_ANON_KEY}
+    depends_on:
+      bridge:
+        condition: service_started
+    restart: unless-stopped
+    ports:
+      - "8080:80"
+    networks: [edge]
+
+networks:
+  edge:
+    driver: bridge

@@ -4,7 +4,7 @@ import {
   CheckCircle2, ChevronDown, CircleDollarSign, Clock3, Copy, Cpu, CreditCard, Database,
   Download, ExternalLink, Eye, EyeOff, FileSpreadsheet, FileText, Filter, Flame, Gauge, Globe,
   HardDrive, Infinity, Key, KeyRound, Laptop, LayoutDashboard, LifeBuoy, Lock, LogOut,
-  MessageSquare, Moon, MoreHorizontal, Network, Palette, Phone, Play, Plus, Printer, Radio,
+  Maximize2, MessageSquare, Minimize2, Moon, MoreHorizontal, Network, Palette, Phone, Play, Plus, Printer, Radio,
   ReceiptText, RefreshCw, Router, Save, Search, Send, Server, Settings, Settings2, Shield,
   ShieldAlert, ShieldCheck, Signal, Sliders, Smartphone, Sparkles, Sun, Tablet, Ticket,
   ToggleLeft, ToggleRight, Trash2, TrendingUp, Unlock, UserCheck, UserPlus, Users, UserX,
@@ -969,6 +969,14 @@ function OperatorDashboard({
   const [showAddRouter, setShowAddRouter] = useState(false)
   const [showAddCustomer, setShowAddCustomer] = useState(false)
   const [showAddPackage, setShowAddPackage] = useState(false)
+  // Drag-to-move for the "Create Access Package" panel (Customize Plan) —
+  // position resets to centered whenever the modal opens or closes.
+  // Full-width toggle for side-by-side reference while creating a package.
+  const [pkgModalWide, setPkgModalWide] = useState(false)
+  // Reopening starts at the normal width again.
+  useEffect(() => {
+    if (!showAddPackage) setPkgModalWide(false)
+  }, [showAddPackage])
   const [showRecordTrx, setShowRecordTrx] = useState(false)
 
   // SMS Modal States
@@ -2317,11 +2325,30 @@ function OperatorDashboard({
       {/* Add Custom Package Modal */}
       {showAddPackage && (
         <div className="modal-backdrop" onClick={() => setShowAddPackage(false)}>
-          <div className="modal" style={{ width: 'min(100%, 480px)' }} onClick={(event) => event.stopPropagation()}>
+          <div
+            className="modal package-modal"
+            style={{ width: pkgModalWide ? 'min(92vw, 980px)' : 'min(100%, 480px)' }}
+            onClick={(event) => event.stopPropagation()}
+          >
+            <button
+              className="modal-expand"
+              type="button"
+              onClick={() => setPkgModalWide((v) => !v)}
+              title={pkgModalWide ? 'Collapse to normal width' : 'Expand to full width'}
+              aria-label={pkgModalWide ? 'Collapse to normal width' : 'Expand to full width'}
+            >
+              {pkgModalWide ? <Minimize2 size={18} /> : <Maximize2 size={18} />}
+            </button>
             <button className="modal-close" onClick={() => setShowAddPackage(false)}><X size={18} /></button>
-            <div className="modal-icon"><Ticket size={22} /></div>
-            <p className="eyebrow">Pricing & Quotas</p>
-            <h2>Create Access Package</h2>
+            <div className="modal-head">
+              <div className="modal-icon"><Ticket size={22} /></div>
+              <p className="eyebrow">Pricing & Quotas</p>
+              <h2>Create Access Package</h2>
+            </div>
+
+            {/* Scrollable body: moves up/down so the whole form fits any
+                viewport; the header stays pinned. */}
+            <div className="modal-scroll">
             <p className="modal-copy">Create custom unlimited or quota-capped hourly, daily, weekly, and monthly plans.</p>
 
             <div style={{ margin: '8px 0 4px' }}>
@@ -2481,6 +2508,7 @@ function OperatorDashboard({
                 <Plus size={16} /> Save & Publish Package
               </button>
             </form>
+            </div>
           </div>
         </div>
       )}

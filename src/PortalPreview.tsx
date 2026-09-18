@@ -6,7 +6,7 @@
 // fallback, so the simulated M-Pesa flow is visible too.
 
 import { useEffect, useMemo, useRef, useState } from 'react'
-import { ExternalLink, Monitor, QrCode, Smartphone, X } from 'lucide-react'
+import { ExternalLink, Monitor, QrCode, RefreshCw, Smartphone, X } from 'lucide-react'
 import { buildPortalPreviewDocument, type PortalBrandingPreview } from './portalPreviewDoc'
 import { qrSvg } from './qr'
 import { usePortalReachability } from './portalReachability'
@@ -49,6 +49,21 @@ export function PortalPreview({ branding }: Props) {
 
   // Is the live portal (bridge) actually serving guests right now?
   const reach = usePortalReachability()
+
+  // Manual re-probe: refresh() forces an immediate round through the shared
+  // useProbe engine (same lifecycle and cancellation rules as the poll loop)
+  // and resolves with THIS round's outcome. The pill itself stays stable
+  // during the round — data is kept until it settles — so the spinner is the
+  // in-flight signal.
+  const [rechecking, setRechecking] = useState(false)
+  const handleRecheck = async () => {
+    setRechecking(true)
+    try {
+      await reach.refresh()
+    } finally {
+      setRechecking(false)
+    }
+  }
 
   // Live portal URL: operator draft (validated live) or best-known default.
   const portalUrl = useMemo(
@@ -109,6 +124,26 @@ export function PortalPreview({ branding }: Props) {
                   ? 'Portal offline'
                   : 'Checking…'}
             </span>
+            <button
+              type="button"
+              onClick={handleRecheck}
+              disabled={rechecking || reach.state === 'checking'}
+              title="Re-check portal reachability now"
+              aria-label="Re-check portal reachability now"
+              style={{
+                display: 'inline-flex',
+                alignItems: 'center',
+                padding: '5px 7px',
+                borderRadius: '8px',
+                border: '1.5px solid var(--line)',
+                background: 'transparent',
+                color: 'var(--muted)',
+                cursor: rechecking || reach.state === 'checking' ? 'default' : 'pointer',
+                lineHeight: 0,
+              }}
+            >
+              <RefreshCw size={12} className={rechecking ? 'spinning' : ''} />
+            </button>
           </div>
           <p style={{ margin: '2px 0 0', fontSize: '11px', color: 'var(--muted)' }}>
             Exactly what guests see — updates as you type, before you save.

@@ -1,0 +1,14 @@
+# --- Secrets / env -----------------------------------------------------------
+.env
+.env.local
+bridge.env
+dashboard.env
+
+# --- Build output ------------------------------------------------------------
+dist/
+node_modules/
+mikrotik-bridge/node_modules/
+
+# --- Logs & scratch ----------------------------------------------------------
+*.log
+.freebuff/

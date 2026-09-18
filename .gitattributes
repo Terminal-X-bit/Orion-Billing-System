@@ -1,0 +1,6 @@
+# Keep shell scripts LF-only so they stay valid inside Linux containers
+# regardless of the committer's git config on Windows.
+*.sh text eol=lf
+# Same for the compose file's env templates consumed by shell tooling.
+*.env text
+deploy/* text eol=lf

@@ -1,0 +1,15 @@
+# Build context for BOTH images (compose builds them from the repo root).
+# Keep it lean: no deps, no build output, no secrets, no VCS.
+node_modules
+mikrotik-bridge/node_modules
+mikrotik-bridge/test
+dist
+.git
+.freebuff
+.github
+supabase
+*.log
+.env*
+bridge.env
+dashboard.env
+IMPLEMENTATION.md
