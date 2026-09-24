@@ -1,19 +1,63 @@
-import { useEffect, useState, useRef } from 'react'
+import { useEffect, useState, useRef, useCallback } from 'react'
 import {
   Activity, AlertTriangle, ArrowDownRight, ArrowUpRight, Ban, BarChart3, Bell, Check,
-  CheckCircle2, ChevronDown, CircleDollarSign, Clock3, Copy, Cpu, CreditCard, Database,
+  CheckCircle2, ChevronDown, ChevronUp, CircleDollarSign, Clock3, Copy, Cpu, CreditCard, Database,
   Download, ExternalLink, Eye, EyeOff, FileSpreadsheet, FileText, Filter, Flame, Gauge, Globe,
   HardDrive, Infinity, Key, KeyRound, Laptop, LayoutDashboard, LifeBuoy, Lock, LogOut,
-  Maximize2, MessageSquare, Minimize2, Moon, MoreHorizontal, Network, Palette, Phone, Play, Plus, Printer, Radio,
+  Maximize2, MessageSquare, Minimize2, Moon, Network, Palette, Phone, Play, Plus, Printer, Radio,
   ReceiptText, RefreshCw, Router, Save, Search, Send, Server, Settings, Settings2, Shield,
   ShieldAlert, ShieldCheck, Signal, Sliders, Smartphone, Sparkles, Sun, Tablet, Ticket,
   ToggleLeft, ToggleRight, Trash2, TrendingUp, Unlock, UserCheck, UserPlus, Users, UserX,
   Wifi, WifiOff, X, Zap, MessageCircle, SendHorizonal, Terminal, CheckCheck,
 } from 'lucide-react'
+// NOTE: do not reference bare `Infinity` in this module — the lucide-react
+// `Infinity` icon import above shadows the global inside this file. Use
+// Number.POSITIVE_INFINITY (see paidIncomeBetween below).
+
+/** Demo-parity Quick Actions: pinnable sidebar shortcuts (localStorage-backed,
+ *  max 6, mirroring the ispledger dashboard modal). */
+type QuickAction = { id: string; label: string; nav: string }
+const QUICK_ACTION_STORAGE_KEY = 'orion_quick_actions'
+const QUICK_ACTION_MAX = 6
+/** Pages a Quick Action may target — the operator-facing workspace views. */
+const QUICK_ACTION_TARGETS: readonly string[] = ['Overview', 'Customers', 'Packages', 'Vouchers', 'Transactions', 'Routers', 'Reports', 'Settings']
+const DEFAULT_QUICK_ACTIONS: readonly QuickAction[] = [
+  { id: 'qa-customers', label: 'Customers', nav: 'Customers' },
+  { id: 'qa-vouchers', label: 'Vouchers', nav: 'Vouchers' },
+  { id: 'qa-transactions', label: 'Transactions', nav: 'Transactions' },
+  { id: 'qa-reports', label: 'Reports', nav: 'Reports' },
+]
+
+function loadQuickActions(): QuickAction[] {
+  try {
+    const raw = localStorage.getItem(QUICK_ACTION_STORAGE_KEY)
+    if (raw) {
+      const parsed: unknown = JSON.parse(raw)
+      if (Array.isArray(parsed)) {
+        const valid = parsed
+          .filter((qa): qa is QuickAction =>
+            typeof qa === 'object' && qa !== null && typeof (qa as any).id === 'string' && typeof (qa as any).label === 'string' && typeof (qa as any).nav === 'string')
+          .filter((qa) => QUICK_ACTION_TARGETS.includes(qa.nav))
+          .slice(0, QUICK_ACTION_MAX)
+        if (valid.length > 0) return valid
+      }
+    }
+  } catch { /* fall through to defaults */ }
+  return [...DEFAULT_QUICK_ACTIONS]
+}
+
+function saveQuickActions(actions: QuickAction[]) {
+  try { localStorage.setItem(QUICK_ACTION_STORAGE_KEY, JSON.stringify(actions)) } catch { /* non-fatal */ }
+}
+
+/** Usage chart window selector, mirroring the demo's Today/Weekly/Monthly tabs. */
+type UsageWindow = 'today' | 'week' | 'month'
+const USAGE_WINDOW_LABEL: Record<UsageWindow, string> = { today: 'Today', week: 'This week', month: 'This month' }
 import { supabase, getSupabaseConfig, setSupabaseConfig } from './lib/supabase'
 import { bridgeApi, getBridgeConfig, setBridgeConfig, getBridgeRouterId, setBridgeRouterId, formatBytes } from './lib/bridge'
 import { useMikrotik } from './hooks/useMikrotik'
 import { useTheme } from './useTheme'
+import { updateUsageWindows, type UsageWindows } from './lib/usage'
 import { PortalPreview } from './PortalPreview'
 import {
   SmsGatewayConfig,
@@ -32,9 +76,7 @@ import {
 
 type Session = { id?: string; name: string; device: string; location: string; plan: string; usage: string; progress: number; color: string; live?: boolean }
 type LiveSession = Session & { id: string; live: true }
-type Transaction = { id: string; customer: string; phone?: string; method: string; package: string; amount: string; status: string; time: string; receipt?: string }
-type PackageItem = { id?: string; name: string; sales: string; amount: string; width: string; color: string }
-type RouterItem = { id?: string; name: string; value: string; status: string }
+type Transaction = { id: string; customer: string; phone?: string; method: string; package: string; amount: string; status: string; time: string; receipt?: string; createdAt?: number }
 
 const SESSION_COLORS = ['#317d75', '#d36b4d', '#4d7dd3', '#8a63c9', '#c99a3f', '#5ba345']
 
@@ -178,12 +220,12 @@ const initialSessions: Session[] = [
 ]
 
 const initialTransactions: Transaction[] = [
-  { id: '#TRX-2091', customer: 'Maya Ochieng', phone: '+254 712 345 678', method: 'M-Pesa', package: '24h Day Pass Unlimited', amount: 'KSh 350', status: 'Paid', time: 'Today, 09:42', receipt: 'QHD82910KP' },
-  { id: '#TRX-2090', customer: 'Peter Mwangi', phone: '+254 701 234 567', method: 'Voucher', package: '1 Hour Unlimited Rush', amount: 'KSh 70', status: 'Paid', time: 'Today, 09:26', receipt: 'VCH-9821' },
-  { id: '#TRX-2089', customer: 'Grace Njeri', phone: '+254 790 654 321', method: 'M-Pesa', package: '7 Days Unlimited Flex', amount: 'KSh 1,500', status: 'Paid', time: 'Today, 08:58', receipt: 'QHD82904LP' },
-  { id: '#TRX-2088', customer: 'Samuel Kibet', phone: '+254 711 987 654', method: 'Airtel Money', package: '30 Days Monthly Unlimited', amount: 'KSh 3,500', status: 'Paid', time: 'Today, 08:44', receipt: 'AIR-99210' },
-  { id: '#TRX-2087', customer: 'John Doe', phone: '+254 720 112 233', method: 'M-Pesa', package: 'Family 4-Devices 30d Unlimited', amount: 'KSh 6,500', status: 'Paid', time: 'Yesterday, 21:15', receipt: 'QHD82877TR' },
-  { id: '#TRX-2086', customer: 'Faith Chebet', phone: '+254 734 556 778', method: 'M-Pesa', package: '24h Day Pass Unlimited', amount: 'KSh 350', status: 'Paid', time: 'Yesterday, 19:40', receipt: 'QHD82862MN' },
+  { id: '#TRX-2091', customer: 'Maya Ochieng', phone: '+254 712 345 678', method: 'M-Pesa', package: '24h Day Pass Unlimited', amount: 'KSh 350', status: 'Paid', time: 'Today, 09:42', receipt: 'QHD82910KP', createdAt: Date.now() - 78 * 60000 },
+  { id: '#TRX-2090', customer: 'Peter Mwangi', phone: '+254 701 234 567', method: 'Voucher', package: '1 Hour Unlimited Rush', amount: 'KSh 70', status: 'Paid', time: 'Today, 09:26', receipt: 'VCH-9821', createdAt: Date.now() - 94 * 60000 },
+  { id: '#TRX-2089', customer: 'Grace Njeri', phone: '+254 790 654 321', method: 'M-Pesa', package: '7 Days Unlimited Flex', amount: 'KSh 1,500', status: 'Paid', time: 'Today, 08:58', receipt: 'QHD82904LP', createdAt: Date.now() - 122 * 60000 },
+  { id: '#TRX-2088', customer: 'Samuel Kibet', phone: '+254 711 987 654', method: 'Airtel Money', package: '30 Days Monthly Unlimited', amount: 'KSh 3,500', status: 'Paid', time: 'Today, 08:44', receipt: 'AIR-99210', createdAt: Date.now() - 136 * 60000 },
+  { id: '#TRX-2087', customer: 'John Doe', phone: '+254 720 112 233', method: 'M-Pesa', package: 'Family 4-Devices 30d Unlimited', amount: 'KSh 6,500', status: 'Paid', time: 'Yesterday, 21:15', receipt: 'QHD82877TR', createdAt: Date.now() - 26 * 3600000 },
+  { id: '#TRX-2086', customer: 'Faith Chebet', phone: '+254 734 556 778', method: 'M-Pesa', package: '24h Day Pass Unlimited', amount: 'KSh 350', status: 'Paid', time: 'Yesterday, 19:40', receipt: 'QHD82862MN', createdAt: Date.now() - 29 * 3600000 },
 ]
 
 const initialPackagesList: HotspotPackage[] = [
@@ -274,12 +316,6 @@ const initialVouchersList: VoucherRecord[] = [
   { id: 'vch-4', code: 'ORN-3389-M7', package_name: '24h Day Pass Unlimited', price: 'KSh 350', status: 'redeemed', created_at: 'Today, 08:00', redeemed_by: 'Peter Mwangi (10.20.0.34)', expires_at: 'Sep 30, 2026' },
   { id: 'vch-5', code: 'ORN-5520-P1', package_name: '30 Days Monthly Unlimited Pro', price: 'KSh 3,500', status: 'active', created_at: 'Yesterday, 16:45', expires_at: 'Oct 15, 2026' },
   { id: 'vch-6', code: 'ORN-2294-Z8', package_name: 'Duo 2-Devices 24h Unlimited', price: 'KSh 500', status: 'active', created_at: 'Yesterday, 14:20', expires_at: 'Sep 30, 2026' },
-]
-
-const initialRouters: RouterItem[] = [
-  { name: 'MikroTik routers', value: '3 / 3 online', status: 'good' },
-  { name: 'Active access points', value: '18 online', status: 'good' },
-  { name: 'Bandwidth usage', value: '68% capacity', status: 'warn' },
 ]
 
 const initialRouterDevices: RouterDevice[] = [
@@ -420,8 +456,66 @@ const initialCustomers: CustomerRecord[] = [
   },
 ]
 
+// ---------------------------------------------------------------------------
+// Overview stat derivations — every dashboard number is computed from the
+// records the app actually loaded (Supabase rows, bridge sessions, or the
+// seed fallbacks). No hardcoded metrics: the Overview can never contradict
+// the Reports view, which derives from the same arrays.
+// ---------------------------------------------------------------------------
+
+const parseKsh = (amount: string): number => Number(String(amount).replace(/[^0-9.]/g, '')) || 0
+
+function startOfLocalDay(d = new Date()): number {
+  const c = new Date(d)
+  c.setHours(0, 0, 0, 0)
+  return c.getTime()
+}
+
+/** Sum of Paid transactions for a [from, to) millisecond window.
+ *  NOTE: Number.POSITIVE_INFINITY, not the global `Infinity` — App.tsx
+ *  imports lucide-react's `Infinity` icon, which shadows the global in
+ *  module scope and silently breaks the comparison. */
+function paidIncomeBetween(transactions: Transaction[], from: number, to = Number.POSITIVE_INFINITY): number {
+  return transactions
+    .filter((t) => t.status === 'Paid' && t.createdAt !== undefined && t.createdAt >= from && t.createdAt < to)
+    .reduce((acc, t) => acc + parseKsh(t.amount), 0)
+}
+
+/** Count of Paid transactions in a [from, to) window. */
+function paidCountBetween(transactions: Transaction[], from: number, to = Number.POSITIVE_INFINITY): number {
+  return transactions.filter((t) => t.status === 'Paid' && t.createdAt !== undefined && t.createdAt >= from && t.createdAt < to).length
+}
+
+const formatKsh = (n: number): string => `KSh ${Math.round(n).toLocaleString()}`
+
+/** Demo-matching "17/3" Active/Expired badge: active vs expired plan counts. */
+function activeExpiredSplit(vouchers: VoucherRecord[]): string {
+  const active = vouchers.filter((v) => v.status === 'active').length
+  const expired = vouchers.filter((v) => v.status === 'expired').length
+  const redeemed = vouchers.filter((v) => v.status === 'redeemed').length
+  return `${active}/${expired + redeemed}`
+}
+
+/** Last 30 days of Paid income bucketed per calendar day (oldest first).
+ *  Days with no transactions still appear (zero-height bars). */
+function dailyIncomeSeries(transactions: Transaction[], days = 30): { label: string; amount: number }[] {
+  const todayStart = startOfLocalDay()
+  const byDay = new Map<number, number>()
+  for (let i = days - 1; i >= 0; i--) byDay.set(todayStart - i * 86400000, 0)
+  transactions.forEach((t) => {
+    if (t.status !== 'Paid' || t.createdAt === undefined) return
+    const dayStart = startOfLocalDay(new Date(t.createdAt))
+    if (byDay.has(dayStart)) byDay.set(dayStart, (byDay.get(dayStart) || 0) + parseKsh(t.amount))
+  })
+  return [...byDay.entries()].map(([dayStart, amount]) => ({
+    label: new Date(dayStart).toLocaleDateString(undefined, { month: 'short', day: 'numeric' }),
+    amount,
+  }))
+}
+
 function App() {
   const { theme, toggleTheme } = useTheme()
+
   const [operator, setOperator] = useState<OperatorUser | null>(() => {
     const saved = localStorage.getItem('orion_operator')
     if (saved) {
@@ -948,10 +1042,42 @@ function OperatorDashboard({
   onLogout: () => void
 }) {
   const [activeNav, setActiveNav] = useState('Overview')
+
+  // --- Demo-parity Quick Actions (Overview header, operator-pinned) -------
+  const [quickActions, setQuickActions] = useState<QuickAction[]>(loadQuickActions)
+  const [showQuickActions, setShowQuickActions] = useState(false)
+  const [qaPick, setQaPick] = useState('')
+
+  const persistQuickActions = useCallback((next: QuickAction[]) => {
+    setQuickActions(next)
+    saveQuickActions(next)
+  }, [])
+
+  const addQuickAction = (nav: string) => {
+    if (!nav) return
+    if (quickActions.length >= QUICK_ACTION_MAX) return
+    if (quickActions.some((qa) => qa.nav === nav)) return
+    persistQuickActions([...quickActions, { id: `qa-${nav.toLowerCase()}`, label: nav, nav }])
+  }
+
+  const removeQuickAction = (id: string) => {
+    persistQuickActions(quickActions.filter((qa) => qa.id !== id))
+  }
+
+  const moveQuickAction = (id: string, dir: -1 | 1) => {
+    const idx = quickActions.findIndex((qa) => qa.id === id)
+    if (idx < 0) return
+    const to = idx + dir
+    if (to < 0 || to >= quickActions.length) return
+    const next = [...quickActions]
+    const [moved] = next.splice(idx, 1)
+    next.splice(to, 0, moved)
+    persistQuickActions(next)
+  }
+
   const [sessions, setSessions] = useState<Session[]>(initialSessions)
   const [transactionsList, setTransactionsList] = useState<Transaction[]>(initialTransactions)
   const [packages, setPackages] = useState<HotspotPackage[]>(initialPackagesList)
-  const [routersList, setRoutersList] = useState<RouterItem[]>(initialRouters)
   const [routerDevices, setRouterDevices] = useState<RouterDevice[]>(initialRouterDevices)
   const [customersList, setCustomersList] = useState<CustomerRecord[]>(initialCustomers)
   const [vouchersList, setVouchersList] = useState<VoucherRecord[]>(initialVouchersList)
@@ -1004,6 +1130,20 @@ function OperatorDashboard({
   const [liveSessions, setLiveSessions] = useState<LiveSession[]>([])
   const [bridgeSyncing, setBridgeSyncing] = useState(false)
 
+  // --- Data usage windows (Today / Week / Month), fed by live bridge telemetry.
+  // The accumulator lives in a ref so poll updates never remount anything.
+  const usageStoreRef = useRef<Map<string, { cumulative: number; byDay: Map<number, number> }>>(new Map())
+  const [usage, setUsage] = useState<UsageWindows | null>(null)
+  const [usageWindow, setUsageWindow] = useState<UsageWindow>('today')
+
+  useEffect(() => {
+    if (mikrotik.sessions.length === 0) return
+    setUsage(updateUsageWindows(
+      usageStoreRef.current,
+      mikrotik.sessions.map((s) => ({ key: `${s.username}@${s.address}`, bytesIn: s.bytes_in, bytesOut: s.bytes_out })),
+    ))
+  }, [mikrotik.sessions])
+
   // Project live router sessions into the dashboard session list so the
   // Overview table reflects the actual hotspot, not demo rows.
   useEffect(() => {
@@ -1022,22 +1162,79 @@ function OperatorDashboard({
     setLiveSessions(mapped)
   }, [mikrotik.sessions])
 
-  // Reflect live router health in the Network health panel.
-  useEffect(() => {
-    const h = mikrotik.health
-    if (!h) return
-    setRoutersList([
-      { name: `MikroTik · ${h.identity}`, value: 'online', status: 'good' },
-      { name: 'Active interfaces', value: `${h.interfaces_running} / ${h.interfaces_total} up`, status: h.interfaces_running === h.interfaces_total ? 'good' : 'warn' },
-      { name: 'Router CPU load', value: `${h.cpu_load}% · ${h.free_memory_mb} MB free`, status: h.cpu_load < 60 ? 'good' : 'warn' },
-      { name: 'Router traffic', value: `↓${formatBytes(h.bytes_received)} ↑${formatBytes(h.bytes_sent)}`, status: 'good' },
-    ])
-  }, [mikrotik.health])
-
   // When the bridge reports live RouterOS sessions they are the truth; the
   // demo/DB rows are only a fallback while the bridge is unreachable.
   const displaySessions: Session[] = liveSessions.length > 0 ? liveSessions : sessions
-  const liveSessionCount = liveSessions.length > 0 ? liveSessions.length : sessions.length + 146
+  const liveSessionCount = displaySessions.length
+
+  // Overview metrics — all derived from loaded transactions/vouchers/customers.
+  const todayStart = startOfLocalDay()
+  const monthStart = new Date(); monthStart.setDate(1); monthStart.setHours(0, 0, 0, 0)
+  const todayIncome = paidIncomeBetween(transactionsList, todayStart)
+  const todayCount = paidCountBetween(transactionsList, todayStart)
+  const monthIncome = paidIncomeBetween(transactionsList, monthStart.getTime())
+  const monthCount = paidCountBetween(transactionsList, monthStart.getTime())
+  const paidRevenue = transactionsList.filter((t) => t.status === 'Paid').reduce((acc, t) => acc + parseKsh(t.amount), 0)
+  const paidCount = transactionsList.filter((t) => t.status === 'Paid').length
+
+  // Network health panel — derived live from bridge telemetry (the old panel
+  // hardcoded "98/100 · 18 APs · 68% capacity"; nothing fabricated survives).
+  const routerHealth = mikrotik.health
+  const networkRows: { label: string; value: string; status: string }[] = routerHealth
+    ? [
+        { label: `MikroTik · ${routerHealth.identity}`, value: 'online', status: 'good' },
+        { label: 'Active interfaces', value: `${routerHealth.interfaces_running} / ${routerHealth.interfaces_total} up`, status: routerHealth.interfaces_running === routerHealth.interfaces_total ? 'good' : 'warn' },
+        { label: 'Router CPU load', value: `${routerHealth.cpu_load}% · ${routerHealth.free_memory_mb} MB free`, status: routerHealth.cpu_load < 60 ? 'good' : 'warn' },
+        { label: 'Router traffic', value: `↓${formatBytes(routerHealth.bytes_received)} ↑${formatBytes(routerHealth.bytes_sent)}`, status: 'good' },
+      ]
+    : [
+        { label: 'Router link', value: 'Bridge offline', status: 'warn' },
+        { label: 'Live sessions', value: String(liveSessionCount), status: 'good' },
+        { label: 'Active vouchers', value: `${vouchersList.filter((v) => v.status === 'active').length} ready`, status: 'good' },
+      ]
+  // Score = interface health (40 pts) + CPU headroom (60 pts). No uptime
+  // history is stored, so no "uptime this month" figure is claimed.
+  const healthScore = routerHealth
+    ? Math.round(
+        40 * (routerHealth.interfaces_total > 0 ? routerHealth.interfaces_running / routerHealth.interfaces_total : 0) +
+        60 * (1 - Math.min(100, routerHealth.cpu_load) / 100),
+      )
+    : 0
+  const healthLabel = healthScore >= 90 ? 'Excellent' : healthScore >= 70 ? 'Good' : healthScore >= 50 ? 'Fair' : 'Degraded'
+  const healthSub = routerHealth
+    ? `${routerHealth.interfaces_running}/${routerHealth.interfaces_total} interfaces · CPU ${routerHealth.cpu_load}%`
+    : 'Bridge offline'
+
+  // Today's heaviest devices, straight from the usage accumulator (live sessions
+  // only — nothing is invented for offline users).
+  const topUsageDevices = usage
+    ? mikrotik.sessions
+        .map((s) => {
+          const acc = usageStoreRef.current.get(`${s.username}@${s.address}`)
+          return { name: s.username, bytes: acc ? acc.byDay.get(todayStart) || 0 : 0 }
+        })
+        .filter((d) => d.bytes > 0)
+        .sort((a, b) => b.bytes - a.bytes)
+        .slice(0, 4)
+    : []
+
+  // Sidebar SMS-gateway status — mirrors the real gateway configuration; no
+  // balance is shown because no provider balance API is wired up yet.
+  const smsGateway = getSmsConfig()
+
+  // Popular packages — ranked by real Paid revenue per package name.
+  const packageRevenue = new Map<string, { count: number; revenue: number }>()
+  transactionsList
+    .filter((t) => t.status === 'Paid')
+    .forEach((t) => {
+      const cur = packageRevenue.get(t.package) || { count: 0, revenue: 0 }
+      packageRevenue.set(t.package, { count: cur.count + 1, revenue: cur.revenue + parseKsh(t.amount) })
+    })
+  const topPackages = [...packageRevenue.entries()]
+    .sort((a, b) => b[1].revenue - a[1].revenue)
+    .slice(0, 3)
+    .map(([name, s], i) => ({ name, count: s.count, revenue: s.revenue, color: (['orange', 'teal', 'yellow'] as const)[i % 3] }))
+
 
   // New Router Form State
   const [newRouterName, setNewRouterName] = useState('')
@@ -1178,7 +1375,7 @@ function OperatorDashboard({
       // 4. Load Transactions
       const { data: trxData, error: trxEerror } = await client
         .from('transactions')
-        .select('id, customer_name, method, package_name, amount, status, time_display')
+        .select('id, customer_name, method, package_name, amount, status, time_display, created_at')
         .order('created_at', { ascending: false })
         .limit(20)
 
@@ -1192,6 +1389,7 @@ function OperatorDashboard({
           amount: trx.amount,
           status: trx.status,
           time: trx.time_display,
+          createdAt: trx.created_at ? new Date(trx.created_at).getTime() : undefined,
           receipt: `REC-${trx.id.slice(1, 7)}`,
         })))
       }
@@ -1216,20 +1414,6 @@ function OperatorDashboard({
         })))
       }
 
-      // 6. Load Routers
-      const { data: routerData, error: routerError } = await client
-        .from('routers')
-        .select('id, name, ip_address, model, location, status')
-
-      if (!routerError && routerData && routerData.length > 0) {
-        const total = routerData.length
-        const online = routerData.filter((r) => r.status === 'good').length
-        setRoutersList([
-          { name: 'MikroTik routers', value: `${online} / ${total} online`, status: online === total ? 'good' : 'warn' },
-          { name: 'Active access points', value: `${total * 6} online`, status: 'good' },
-          { name: 'Bandwidth usage', value: '68% capacity', status: 'warn' },
-        ])
-      }
     } catch (err: any) {
       console.warn('Database note:', err)
     } finally {
@@ -1369,6 +1553,7 @@ function OperatorDashboard({
       status: 'Paid',
       time: 'Just now',
       receipt: `MAN-${Math.random().toString(36).substring(2, 8).toUpperCase()}`,
+      createdAt: Date.now(),
     }
 
     const client = supabase
@@ -1842,6 +2027,16 @@ function OperatorDashboard({
             </button>
           ))}
         </nav>
+        <div className="sidebar-sms">
+          <div className="sms-icon"><MessageSquare size={15} /></div>
+          <div>
+            <strong>{smsGateway.smsEnabled ? 'SMS gateway active' : 'SMS gateway off'}</strong>
+            <span>{smsGateway.provider === 'custom_webhook' ? 'Custom webhook' : smsGateway.provider === 'simulator' ? 'Simulator mode' : smsGateway.provider}</span>
+          </div>
+          <button className="text-button" onClick={() => setActiveNav('Settings')}>
+            Manage <ArrowUpRight size={13} />
+          </button>
+        </div>
         <div className="sidebar-bottom">
           <div className="help-box">
             <div className="help-icon"><LifeBuoy size={17} /></div>
@@ -1883,6 +2078,46 @@ function OperatorDashboard({
       </aside>
 
       <main className="main-content">
+        {showQuickActions && (
+          <div className="modal-backdrop" onClick={() => setShowQuickActions(false)}>
+            <div className="modal" role="dialog" aria-modal="true" aria-label="Manage quick actions" onClick={(e) => e.stopPropagation()}>
+              <button className="modal-close" aria-label="Close" onClick={() => setShowQuickActions(false)}><X size={18} /></button>
+              <div className="modal-head">
+                <div className="modal-icon"><Zap size={22} /></div>
+                <p className="eyebrow">Overview shortcuts</p>
+                <h2>Manage quick actions</h2>
+                <p className="modal-copy">Up to {QUICK_ACTION_MAX} shortcuts pinned to the Overview header.</p>
+              </div>
+              <div className="qa-edit-list">
+                {quickActions.map((qa, i) => (
+                  <div key={qa.id} className="qa-edit-row">
+                    <span>{qa.label}</span>
+                    <div className="qa-edit-actions">
+                      <button className="icon-button" aria-label={`Move ${qa.label} up`} disabled={i === 0} onClick={() => moveQuickAction(qa.id, -1)}><ChevronUp size={14} /></button>
+                      <button className="icon-button" aria-label={`Move ${qa.label} down`} disabled={i === quickActions.length - 1} onClick={() => moveQuickAction(qa.id, 1)}><ChevronDown size={14} /></button>
+                      <button className="icon-button" aria-label={`Remove ${qa.label}`} onClick={() => removeQuickAction(qa.id)}><X size={14} /></button>
+                    </div>
+                  </div>
+                ))}
+              </div>
+              <div className="qa-add-row">
+                <select value={qaPick} onChange={(e) => setQaPick(e.target.value)}>
+                  <option value="">Add a page…</option>
+                  {QUICK_ACTION_TARGETS.filter((t) => !quickActions.some((qa) => qa.nav === t)).map((t) => (
+                    <option key={t} value={t}>{t}</option>
+                  ))}
+                </select>
+                <button
+                  className="button secondary"
+                  disabled={!qaPick || quickActions.length >= QUICK_ACTION_MAX}
+                  onClick={() => { addQuickAction(qaPick); setQaPick('') }}
+                >
+                  <Plus size={15} /> Add
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
         <header className="topbar">
           <div className="breadcrumb">
             <span>{settings.businessName}</span>
@@ -1935,7 +2170,7 @@ function OperatorDashboard({
             <>
               <section className="page-heading">
                 <div>
-                  <p className="eyebrow">Wednesday, August 26, 2026</p>
+                  <p className="eyebrow">{new Date().toLocaleDateString(undefined, { weekday: 'long', month: 'long', day: 'numeric', year: 'numeric' })}</p>
                   <h1>Good morning, {operator.name.split(' ')[0]} <span>✦</span></h1>
                   <p className="heading-sub">Here is what is happening across your hotspot today.</p>
                 </div>
@@ -1949,50 +2184,73 @@ function OperatorDashboard({
                 </div>
               </section>
 
+              <section className="quick-actions">
+                <span className="qa-label"><Zap size={13} /> Quick actions</span>
+                {quickActions.map((qa) => (
+                  <button key={qa.id} className="qa-chip" onClick={() => setActiveNav(qa.nav)}>{qa.label}</button>
+                ))}
+                <button className="qa-manage" onClick={() => { setQaPick(''); setShowQuickActions(true) }}>
+                  <Settings2 size={13} /> Manage
+                </button>
+              </section>
+
               <section className="metrics-grid">
-                <Metric label="Total revenue" value="KSh 284,650" change="18.4%" trend="up" icon={CircleDollarSign} accent="green" />
-                <Metric label="Active customers" value={String(customersList.length + 1278)} change="12.6%" trend="up" icon={Users} accent="orange" />
-                <Metric label="Live sessions" value={String(liveSessionCount)} change={liveSessions.length > 0 ? 'Live from router' : '4.2%'} trend="up" icon={Wifi} accent="teal" />
-                <Metric label="Avg. session time" value="3h 42m" change="8.1%" trend="down" icon={Gauge} accent="blue" />
+                <Metric label="Income today" value={formatKsh(todayIncome)} change={`${todayCount} payments`} trend="up" icon={CircleDollarSign} accent="green" note="" />
+                <Metric label="Income this month" value={formatKsh(monthIncome)} change={`${monthCount} payments`} trend="up" icon={TrendingUp} accent="orange" note="" />
+                <Metric label="Active / expired" value={activeExpiredSplit(vouchersList)} change={`${vouchersList.length} vouchers`} trend="up" icon={Users} accent="teal" note="" />
+                <Metric label="Total users" value={String(customersList.length)} change={`${customersList.filter((c) => c.status === 'active').length} active`} trend="up" icon={Users} accent="blue" note="" />
+                <Metric label="Hotspot online" value={String(liveSessionCount)} change={liveSessions.length > 0 ? 'Live from router' : `${sessions.length} demo rows`} trend="up" icon={Wifi} accent="teal" note="" />
+                <Metric label="Routers" value={String(routerDevices.length)} change={`${routerDevices.filter((r) => r.status === 'good').length} healthy`} trend="up" icon={Server} accent="blue" note="" />
+                <Metric label="Activations" value={String(paidCount)} change={`${todayCount} today`} trend="up" icon={UserCheck} accent="green" note="" />
               </section>
 
               <div className="content-grid">
                 <section className="panel revenue-panel">
                   <div className="panel-heading">
                     <div>
-                      <h2>Revenue overview</h2>
+                      <h2>Income overview</h2>
                       <p>Monthly income from all access packages</p>
                     </div>
                     <button className="select-button">Last 30 days <ChevronDown size={14} /></button>
                   </div>
                   <div className="revenue-total">
-                    <strong>KSh 284,650</strong>
-                    <span className="positive"><ArrowUpRight size={14} /> 18.4%</span>
+                    <strong>{formatKsh(paidRevenue)}</strong>
+                    <span className="positive">{paidCount} payments · all time</span>
                   </div>
-                  <RevenueChart />
+                  <RevenueChart transactions={transactionsList} />
                 </section>
 
                 <section className="panel network-panel">
                   <div className="panel-heading">
                     <div>
                       <h2>Network health</h2>
-                      <p>All systems are operational</p>
+                      <p>{routerHealth ? 'Live RouterOS telemetry' : 'Router link offline'}</p>
                     </div>
-                    <span className="live-pill"><i /> Live</span>
+                    {routerHealth
+                      ? <span className="live-pill"><i /> Live</span>
+                      : <span className="live-pill offline"><i /> Offline</span>}
                   </div>
-                  <div className="network-score">
-                    <div className="score-ring">
-                      <strong>98</strong>
-                      <span>/100</span>
+                  {routerHealth ? (
+                    <div className="network-score">
+                      <div className="score-ring">
+                        <strong>{healthScore}</strong>
+                        <span>/100</span>
+                      </div>
+                      <div>
+                        <strong>{healthLabel}</strong>
+                        <p>{healthSub}</p>
+                      </div>
                     </div>
-                    <div>
-                      <strong>Excellent</strong>
-                      <p>Uptime this month</p>
+                  ) : (
+                    <div className="network-empty">
+                      <WifiOff size={18} />
+                      <p>No router link</p>
+                      <small>Start the MikroTik bridge to stream live health</small>
                     </div>
-                  </div>
+                  )}
                   <div className="health-list">
-                    {routersList.map((r, i) => (
-                      <HealthRow key={i} label={r.name} value={r.value} status={r.status} />
+                    {networkRows.map((r, i) => (
+                      <HealthRow key={i} label={r.label} value={r.value} status={r.status} />
                     ))}
                   </div>
                   <button className="text-button" onClick={() => setActiveNav('Routers')}>
@@ -2001,12 +2259,77 @@ function OperatorDashboard({
                 </section>
               </div>
 
+              <section className="panel usage-panel">
+                <div className="panel-heading">
+                  <div>
+                    <h2>Data usage</h2>
+                    <p>{usage ? 'Live RouterOS counters' : 'Awaiting bridge telemetry'}</p>
+                  </div>
+                  <div className="usage-tabs">
+                    {(['today', 'week', 'month'] as UsageWindow[]).map((w) => (
+                      <button key={w} className={`usage-tab ${usageWindow === w ? 'active' : ''}`} onClick={() => setUsageWindow(w)}>
+                        {USAGE_WINDOW_LABEL[w]}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+                {!usage || !usage.hasData ? (
+                  <div className="network-empty">
+                    <BarChart3 size={18} />
+                    <p>No usage data yet</p>
+                    <small>Connect the MikroTik bridge — usage accumulates from live sessions</small>
+                  </div>
+                ) : usageWindow === 'today' ? (
+                  <div className="usage-today">
+                    <div className="usage-big">
+                      <strong>{formatBytes(usage.today)}</strong>
+                      <span>transferred today across {liveSessions.length} live session{liveSessions.length === 1 ? '' : 's'}</span>
+                    </div>
+                    {topUsageDevices.length > 0 ? (
+                      <div className="usage-devices">
+                        {topUsageDevices.map((d) => (
+                          <div key={d.name} className="health-row">
+                            <span>{d.name}</span>
+                            <strong>{formatBytes(d.bytes)}</strong>
+                          </div>
+                        ))}
+                      </div>
+                    ) : (
+                      <p className="usage-note">No per-device usage observed yet this poll cycle.</p>
+                    )}
+                  </div>
+                ) : (
+                  <div className="usage-chart">
+                    <div
+                      className="usage-chart-bars"
+                      style={{ gridTemplateColumns: `repeat(${usage.series.length}, 1fr)` }}
+                    >
+                      {usage.series.map((p) => {
+                        const max = Math.max(...usage.series.map((x) => x.bytes))
+                        const h = max > 0 ? Math.round((p.bytes / max) * 100) : 0
+                        const label = new Date(p.dayStart).toLocaleDateString(undefined, { month: 'short', day: 'numeric' })
+                        return <div key={p.dayStart} className="usage-col" title={`${label}: ${formatBytes(p.bytes)}`}><i style={{ height: `${h}%` }} /></div>
+                      })}
+                    </div>
+                    <div
+                      className="usage-chart-labels"
+                      style={{ gridTemplateColumns: `repeat(${usage.series.length}, 1fr)` }}
+                    >
+                      {usage.series.map((p, i) => (
+                        <span key={p.dayStart}>{i % 7 === 0 ? new Date(p.dayStart).toLocaleDateString(undefined, { month: 'short', day: 'numeric' }) : ''}</span>
+                      ))}
+                    </div>
+                  </div>
+                )}
+                {usage && <p className="usage-note">Counters accumulate from live polls — a device's first observed total counts toward today.</p>}
+              </section>
+
               <div className="content-grid lower-grid">
                 <section className="panel sessions-panel">
                   <div className="panel-heading">
                     <div>
                       <h2>Live sessions <span className="heading-badge">{liveSessionCount}</span></h2>
-                      <p>{liveSessions.length > 0 ? 'Connected on the MikroTik router now' : 'Customers currently connected'}</p>
+                      <p>{liveSessions.length > 0 ? 'Connected on the MikroTik router now' : 'No router link — showing demo sessions'}</p>
                     </div>
                     <button className="text-button" onClick={() => setActiveNav('Customers')}>
                       View all <ArrowUpRight size={15} />
@@ -2064,22 +2387,29 @@ function OperatorDashboard({
                   <div className="panel-heading">
                     <div>
                       <h2>Popular packages</h2>
-                      <p>Sales by access plan</p>
+                      <p>Revenue by access plan (all time)</p>
                     </div>
-                    <button className="more-button" aria-label="More package options"><MoreHorizontal size={18} /></button>
                   </div>
-                  <div className="package-list">
-                    {packages.slice(0, 3).map((pkg) => (
-                      <PackageRow
-                        key={pkg.id}
-                        name={pkg.name}
-                        sales={`${pkg.sales_count} sold`}
-                        amount={`KSh ${(pkg.price * (pkg.sales_count || 1)).toLocaleString()}`}
-                        width={`${Math.min(100, Math.round((pkg.sales_count / 500) * 100))}%`}
-                        color={pkg.color}
-                      />
-                    ))}
-                  </div>
+                  {topPackages.length > 0 ? (
+                    <div className="package-list">
+                      {topPackages.map((pkg) => (
+                        <PackageRow
+                          key={pkg.name}
+                          name={pkg.name}
+                          sales={`${pkg.count} sold`}
+                          amount={formatKsh(pkg.revenue)}
+                          width={`${Math.max(6, Math.round((pkg.revenue / topPackages[0].revenue) * 100))}%`}
+                          color={pkg.color}
+                        />
+                      ))}
+                    </div>
+                  ) : (
+                    <div className="network-empty">
+                      <Ticket size={18} />
+                      <p>No package sales yet</p>
+                      <small>Sales appear as customers pay</small>
+                    </div>
+                  )}
                   <button className="outline-button" onClick={() => setActiveNav('Packages')}>
                     Manage packages <ArrowUpRight size={15} />
                   </button>
@@ -2216,12 +2546,15 @@ function OperatorDashboard({
       {/* Record Payment Transaction Modal */}
       {showRecordTrx && (
         <div className="modal-backdrop" onClick={() => setShowRecordTrx(false)}>
-          <div className="modal" onClick={(e) => e.stopPropagation()}>
+          <div className="modal modal-flex" onClick={(e) => e.stopPropagation()}>
             <button className="modal-close" onClick={() => setShowRecordTrx(false)}><X size={18} /></button>
-            <div className="modal-icon"><CreditCard size={22} /></div>
-            <p className="eyebrow">Finance & Reconciliation</p>
-            <h2>Record Payment</h2>
-            <p className="modal-copy">Record an offline cash payment, manual M-Pesa or voucher payment.</p>
+            <div className="modal-head">
+              <div className="modal-icon"><CreditCard size={22} /></div>
+              <p className="eyebrow">Finance & Reconciliation</p>
+              <h2>Record Payment</h2>
+              <p className="modal-copy">Record an offline cash payment, manual M-Pesa or voucher payment.</p>
+            </div>
+            <div className="modal-scroll">
             <form onSubmit={handleRecordTransactionSubmit}>
               <label>
                 Customer Name
@@ -2277,19 +2610,22 @@ function OperatorDashboard({
                 <Check size={16} /> Record Transaction
               </button>
             </form>
+            </div>
           </div>
         </div>
       )}
 
       {/* Print Vouchers Slips Sheet Modal */}
       {showPrintVouchers && (
-        <div className="modal-backdrop" onClick={() => setShowPrintVouchers(false)}>
-          <div className="modal" style={{ width: 'min(100%, 680px)' }} onClick={(e) => e.stopPropagation()}>
+        <div className="modal-backdrop" onClick={() => setShowPrintVouchers(false)}>          <div className="modal modal-flex" style={{ width: 'min(100%, 680px)' }} onClick={(e) => e.stopPropagation()}>
             <button className="modal-close" onClick={() => setShowPrintVouchers(false)}><X size={18} /></button>
-            <div className="modal-icon"><Printer size={22} /></div>
-            <p className="eyebrow">Print Slips</p>
-            <h2>Print Voucher Codes</h2>
-            <p className="modal-copy">Print physical voucher tickets for customer purchase at reception or counter.</p>
+            <div className="modal-head">
+              <div className="modal-icon"><Printer size={22} /></div>
+              <p className="eyebrow">Print Slips</p>
+              <h2>Print Voucher Codes</h2>
+              <p className="modal-copy">Print physical voucher tickets for customer purchase at reception or counter.</p>
+            </div>
+            <div className="modal-scroll">
 
             <div className="voucher-print-grid">
               {vouchersList.filter((v) => v.status === 'active').slice(0, 8).map((v) => (
@@ -2318,6 +2654,7 @@ function OperatorDashboard({
                 Close
               </button>
             </div>
+            </div>
           </div>
         </div>
       )}
@@ -2326,7 +2663,7 @@ function OperatorDashboard({
       {showAddPackage && (
         <div className="modal-backdrop" onClick={() => setShowAddPackage(false)}>
           <div
-            className="modal package-modal"
+            className="modal modal-flex"
             style={{ width: pkgModalWide ? 'min(92vw, 980px)' : 'min(100%, 480px)' }}
             onClick={(event) => event.stopPropagation()}
           >
@@ -2516,12 +2853,15 @@ function OperatorDashboard({
       {/* Add Customer Modal */}
       {showAddCustomer && (
         <div className="modal-backdrop" onClick={() => setShowAddCustomer(false)}>
-          <div className="modal" onClick={(event) => event.stopPropagation()}>
+          <div className="modal modal-flex" onClick={(event) => event.stopPropagation()}>
             <button className="modal-close" onClick={() => setShowAddCustomer(false)}><X size={18} /></button>
-            <div className="modal-icon"><UserPlus size={22} /></div>
-            <p className="eyebrow">Customer Directory</p>
-            <h2>Add New Customer</h2>
-            <p className="modal-copy">Register a new subscriber or walk-in customer into your billing system.</p>
+            <div className="modal-head">
+              <div className="modal-icon"><UserPlus size={22} /></div>
+              <p className="eyebrow">Customer Directory</p>
+              <h2>Add New Customer</h2>
+              <p className="modal-copy">Register a new subscriber or walk-in customer into your billing system.</p>
+            </div>
+            <div className="modal-scroll">
             <form onSubmit={handleAddCustomerSubmit}>
               <label>
                 Full Name
@@ -2565,6 +2905,7 @@ function OperatorDashboard({
                 <Plus size={16} /> Register Customer
               </button>
             </form>
+            </div>
           </div>
         </div>
       )}
@@ -2572,12 +2913,15 @@ function OperatorDashboard({
       {/* Add Router Modal */}
       {showAddRouter && (
         <div className="modal-backdrop" onClick={() => setShowAddRouter(false)}>
-          <div className="modal" onClick={(event) => event.stopPropagation()}>
+          <div className="modal modal-flex" onClick={(event) => event.stopPropagation()}>
             <button className="modal-close" onClick={() => setShowAddRouter(false)}><X size={18} /></button>
-            <div className="modal-icon"><Router size={22} /></div>
-            <p className="eyebrow">Hardware Configuration</p>
-            <h2>Add Router / Access Point</h2>
-            <p className="modal-copy">Connect a MikroTik RouterOS or Ubiquiti UniFi AP to this hotspot workspace.</p>
+            <div className="modal-head">
+              <div className="modal-icon"><Router size={22} /></div>
+              <p className="eyebrow">Hardware Configuration</p>
+              <h2>Add Router / Access Point</h2>
+              <p className="modal-copy">Connect a MikroTik RouterOS or Ubiquiti UniFi AP to this hotspot workspace.</p>
+            </div>
+            <div className="modal-scroll">
             <form onSubmit={handleAddRouterSubmit}>
               <label>
                 Router / AP Name
@@ -2623,6 +2967,7 @@ function OperatorDashboard({
                 <Plus size={16} /> Save & Register Device
               </button>
             </form>
+            </div>
           </div>
         </div>
       )}
@@ -2630,12 +2975,15 @@ function OperatorDashboard({
       {/* Voucher Generation Modal */}
       {showVoucher && (
         <div className="modal-backdrop" onClick={() => setShowVoucher(false)}>
-          <div className="modal" onClick={(event) => event.stopPropagation()}>
+          <div className="modal modal-flex" onClick={(event) => event.stopPropagation()}>
             <button className="modal-close" onClick={() => setShowVoucher(false)}><X size={18} /></button>
-            <div className="modal-icon"><Ticket size={22} /></div>
-            <p className="eyebrow">Quick action</p>
-            <h2>Create vouchers</h2>
-            <p className="modal-copy">Generate a batch of access codes for your walk-in customers.</p>
+            <div className="modal-head">
+              <div className="modal-icon"><Ticket size={22} /></div>
+              <p className="eyebrow">Quick action</p>
+              <h2>Create vouchers</h2>
+              <p className="modal-copy">Generate a batch of access codes for your walk-in customers.</p>
+            </div>
+            <div className="modal-scroll">
             <label>
               Package
               <select value={voucherPackage} onChange={(event) => setVoucherPackage(event.target.value)}>
@@ -2671,6 +3019,7 @@ function OperatorDashboard({
             <button className="button primary full" onClick={() => void generateVouchers()}>
               <Zap size={16} /> Generate {voucherCount} Vouchers
             </button>
+            </div>
           </div>
         </div>
       )}
@@ -2678,12 +3027,15 @@ function OperatorDashboard({
       {/* Supabase Database Settings Modal */}
       {showDbSettings && (
         <div className="modal-backdrop" onClick={() => setShowDbSettings(false)}>
-          <div className="modal" onClick={(event) => event.stopPropagation()}>
+          <div className="modal modal-flex" onClick={(event) => event.stopPropagation()}>
             <button className="modal-close" onClick={() => setShowDbSettings(false)}><X size={18} /></button>
-            <div className="modal-icon"><Database size={22} /></div>
-            <p className="eyebrow">Integration</p>
-            <h2>Supabase Database</h2>
-            <p className="modal-copy">Project Reference: <code>ezcwgyhwotomranbyuyh</code></p>
+            <div className="modal-head">
+              <div className="modal-icon"><Database size={22} /></div>
+              <p className="eyebrow">Integration</p>
+              <h2>Supabase Database</h2>
+              <p className="modal-copy">Project Reference: <code>ezcwgyhwotomranbyuyh</code></p>
+            </div>
+            <div className="modal-scroll">
             <form onSubmit={handleSaveCustomKey}>
               <label>
                 Anon Public Key (JWT starting with <code>eyJ...</code>)
@@ -2709,6 +3061,7 @@ function OperatorDashboard({
                 Save & Reconnect
               </button>
             </form>
+            </div>
           </div>
         </div>
       )}
@@ -2716,14 +3069,17 @@ function OperatorDashboard({
       {/* Send Voucher via SMS Modal */}
       {showSendVoucherSms && selectedVoucherForSms && (
         <div className="modal-backdrop" onClick={() => setShowSendVoucherSms(false)}>
-          <div className="modal" onClick={(e) => e.stopPropagation()}>
+          <div className="modal modal-flex" onClick={(e) => e.stopPropagation()}>
             <button className="modal-close" onClick={() => setShowSendVoucherSms(false)}><X size={18} /></button>
-            <div className="modal-icon"><Send size={22} /></div>
-            <p className="eyebrow">SMS Dispatch</p>
-            <h2>Send Voucher via SMS</h2>
-            <p className="modal-copy">
-              Send voucher <strong>{selectedVoucherForSms.code}</strong> directly to customer's mobile phone number.
-            </p>
+            <div className="modal-head">
+              <div className="modal-icon"><Send size={22} /></div>
+              <p className="eyebrow">SMS Dispatch</p>
+              <h2>Send Voucher via SMS</h2>
+              <p className="modal-copy">
+                Send voucher <strong>{selectedVoucherForSms.code}</strong> directly to customer's mobile phone number.
+              </p>
+            </div>
+            <div className="modal-scroll">
 
             <form onSubmit={handleSendVoucherSmsSubmit}>
               <div style={{ background: 'var(--card-subtle-bg)', border: '1px solid var(--line)', borderRadius: '8px', padding: '12px', marginBottom: '14px' }}>
@@ -2781,6 +3137,7 @@ function OperatorDashboard({
                 {isSendingVoucherSms ? <RefreshCw size={15} className="spinning" /> : <Send size={15} />} Dispatch Voucher SMS
               </button>
             </form>
+            </div>
           </div>
         </div>
       )}
@@ -2788,14 +3145,17 @@ function OperatorDashboard({
       {/* Send Customer Custom SMS Alert Modal */}
       {showSendCustomerSms && selectedCustomerForSms && (
         <div className="modal-backdrop" onClick={() => setShowSendCustomerSms(false)}>
-          <div className="modal" onClick={(e) => e.stopPropagation()}>
+          <div className="modal modal-flex" onClick={(e) => e.stopPropagation()}>
             <button className="modal-close" onClick={() => setShowSendCustomerSms(false)}><X size={18} /></button>
-            <div className="modal-icon"><MessageSquare size={22} /></div>
-            <p className="eyebrow">Customer Communication</p>
-            <h2>Send SMS to Customer</h2>
-            <p className="modal-copy">
-              Send a text notification to <strong>{selectedCustomerForSms.name}</strong> ({selectedCustomerForSms.phone}).
-            </p>
+            <div className="modal-head">
+              <div className="modal-icon"><MessageSquare size={22} /></div>
+              <p className="eyebrow">Customer Communication</p>
+              <h2>Send SMS to Customer</h2>
+              <p className="modal-copy">
+                Send a text notification to <strong>{selectedCustomerForSms.name}</strong> ({selectedCustomerForSms.phone}).
+              </p>
+            </div>
+            <div className="modal-scroll">
 
             <form onSubmit={handleSendCustomerSmsSubmit}>
               <label>
@@ -2847,6 +3207,7 @@ function OperatorDashboard({
                 {isSendingCustomerSms ? <RefreshCw size={15} className="spinning" /> : <Send size={15} />} Send SMS Message
               </button>
             </form>
+            </div>
           </div>
         </div>
       )}
@@ -3086,6 +3447,15 @@ function TransactionsManagementView({
   const [searchQuery, setSearchQuery] = useState('')
   const [filterMethod, setFilterMethod] = useState<'all' | 'M-Pesa' | 'Voucher' | 'Airtel Money'>('all')
 
+  // Derived totals — mirrors the Overview derivations so the two views can
+  // never contradict each other.
+  const paid = transactions.filter((t) => t.status === 'Paid')
+  const paidRevenue = paid.reduce((acc, t) => acc + parseKsh(t.amount), 0)
+  const mpesaRevenue = paid.filter((t) => t.method === 'M-Pesa').reduce((acc, t) => acc + parseKsh(t.amount), 0)
+  const voucherRevenue = paid.filter((t) => t.method === 'Voucher').reduce((acc, t) => acc + parseKsh(t.amount), 0)
+  const failedCount = transactions.filter((t) => t.status === 'Failed').length
+  const paymentSuccessRate = transactions.length > 0 ? `${Math.round((paid.length / transactions.length) * 100)}%` : '—'
+
   const filtered = transactions.filter((t) => {
     const matchesSearch =
       t.id.toLowerCase().includes(searchQuery.toLowerCase()) ||
@@ -3132,32 +3502,32 @@ function TransactionsManagementView({
       <section className="metrics-grid">
         <Metric
           label="Total Revenue"
-          value="KSh 284,650"
-          change="18.4%"
+          value={formatKsh(paidRevenue)}
+          change={`${paidCount} paid transactions`}
           trend="up"
           icon={CircleDollarSign}
           accent="green"
         />
         <Metric
           label="M-Pesa Collections"
-          value="KSh 242,500"
-          change="85.2% of total"
+          value={formatKsh(mpesaRevenue)}
+          change={paidRevenue > 0 ? `${Math.round((mpesaRevenue / paidRevenue) * 100)}% of total` : 'No payments yet'}
           trend="up"
           icon={CreditCard}
           accent="orange"
         />
         <Metric
           label="Vouchers Redeemed"
-          value="KSh 42,150"
-          change="14.8% of total"
+          value={formatKsh(voucherRevenue)}
+          change={paidRevenue > 0 ? `${Math.round((voucherRevenue / paidRevenue) * 100)}% of total` : 'No payments yet'}
           trend="up"
           icon={Ticket}
           accent="teal"
         />
         <Metric
           label="Payment Success Rate"
-          value="99.4%"
-          change="0.6% failed"
+          value={paymentSuccessRate}
+          change={`${failedCount} failed`}
           trend="up"
           icon={CheckCircle2}
           accent="blue"
@@ -3255,8 +3625,41 @@ function ReportsManagementView({
 }) {
   const [timeRange, setTimeRange] = useState('This Month')
 
+  // Real metrics derived from actual data via the shared helpers (previously
+  // hardcoded placeholders). Package popularity: sales_count; the rest are
+  // honest "no data" states until the corresponding features land.
+  const paidRevenue = transactions.filter((t) => t.status === 'Paid').reduce((acc, t) => acc + parseKsh(t.amount), 0)
+  const paidCount = transactions.filter((t) => t.status === 'Paid').length
+  const pendingCount = transactions.filter((t) => t.status === 'Pending').length
+  const failedCount = transactions.filter((t) => t.status === 'Failed').length
+  const repeatCustomers = customers.filter((c) => (Number(c.total_spent) || 0) > 0).length
   const totalRevenue = packages.reduce((acc, p) => acc + p.price * p.sales_count, 0)
   const totalSales = packages.reduce((acc, p) => acc + p.sales_count, 0)
+
+  // Revenue by package: from transactions' package_name (real purchase rows).
+  const byPackage = new Map<string, number>()
+  transactions
+    .filter((t) => t.status === 'Paid')
+    .forEach((t) => {
+      const key = t.package || 'Other'
+      byPackage.set(key, (byPackage.get(key) || 0) + parseKsh(t.amount))
+    })
+  const packageBars = [...byPackage.entries()]
+    .sort((a, b) => b[1] - a[1])
+    .slice(0, 5)
+    .map(([name, amt]) => ({ name, amt, pct: paidRevenue > 0 ? (amt / paidRevenue) * 100 : 0 }))
+
+  // Revenue by payment method.
+  const byMethod = new Map<string, number>()
+  transactions
+    .filter((t) => t.status === 'Paid')
+    .forEach((t) => {
+      byMethod.set(t.method, (byMethod.get(t.method) || 0) + parseKsh(t.amount))
+    })
+  const methodColors: Record<string, string> = { 'M-Pesa': '#4ca574', Voucher: 'var(--coral)', 'Airtel Money': '#d9554f', Cash: '#c58a32', Card: '#4f779a' }
+  const methodBars = [...byMethod.entries()]
+    .sort((a, b) => b[1] - a[1])
+    .map(([name, amt]) => ({ name, amt, pct: paidRevenue > 0 ? (amt / paidRevenue) * 100 : 0 }))
 
   return (
     <div className="reports-view">
@@ -3285,33 +3688,33 @@ function ReportsManagementView({
       {/* Metrics Row */}
       <section className="metrics-grid">
         <Metric
-          label="Gross Revenue"
-          value={`KSh ${totalRevenue.toLocaleString()}`}
-          change="18.4% vs last period"
+          label="Gross Revenue (Paid)"
+          value={`KSh ${paidRevenue.toLocaleString()}`}
+          change={`${paidCount} paid transactions`}
           trend="up"
           icon={CircleDollarSign}
           accent="green"
         />
         <Metric
-          label="Total Packages Sold"
+          label="Packages Sold"
           value={totalSales.toLocaleString()}
-          change="1,284 total orders"
-          trend="up"
+          change={`${pendingCount} pending · ${failedCount} failed`}
+          trend={pendingCount > 0 ? 'down' : 'up'}
           icon={Ticket}
           accent="orange"
         />
         <Metric
           label="Data Consumed"
-          value="4.86 TB"
-          change="Peak: 20:00 - 23:00"
+          value="—"
+          change="Needs session accounting (RADIUS/RouterOS)"
           trend="up"
           icon={Activity}
           accent="teal"
         />
         <Metric
-          label="Repeat Customer Rate"
-          value="74.2%"
-          change="Loyal subscribers"
+          label="Paying Customers"
+          value={repeatCustomers.toLocaleString()}
+          change="Customers with recorded spend"
           trend="up"
           icon={Users}
           accent="blue"
@@ -3329,45 +3732,20 @@ function ReportsManagementView({
           </div>
 
           <div style={{ display: 'flex', flexDirection: 'column', gap: '14px', marginTop: '10px' }}>
-            <div className="report-bar-row">
-              <div className="report-bar-top">
-                <strong>Daily Plans (24 Hours Pass)</strong>
-                <span>KSh 121,500 (42.6%)</span>
+            {packageBars.length === 0 && (
+              <p className="muted" style={{ fontSize: '12px' }}>No paid transactions recorded yet.</p>
+            )}
+            {packageBars.map((b, i) => (
+              <div className="report-bar-row" key={b.name}>
+                <div className="report-bar-top">
+                  <strong>{b.name}</strong>
+                  <span>KSh {b.amt.toLocaleString()} ({b.pct.toFixed(1)}%)</span>
+                </div>
+                <div className="report-bar-track">
+                  <div className="report-bar-fill" style={{ width: `${Math.min(100, b.pct)}%`, background: ['var(--coral)', '#317d75', '#4f779a', '#c58a32'][i % 4] }} />
+                </div>
               </div>
-              <div className="report-bar-track">
-                <div className="report-bar-fill" style={{ width: '42.6%', background: 'var(--coral)' }} />
-              </div>
-            </div>
-
-            <div className="report-bar-row">
-              <div className="report-bar-top">
-                <strong>Weekly Access Plans</strong>
-                <span>KSh 74,400 (26.1%)</span>
-              </div>
-              <div className="report-bar-track">
-                <div className="report-bar-fill" style={{ width: '26.1%', background: '#317d75' }} />
-              </div>
-            </div>
-
-            <div className="report-bar-row">
-              <div className="report-bar-top">
-                <strong>Monthly & Multi-Device Subscriptions</strong>
-                <span>KSh 64,800 (22.7%)</span>
-              </div>
-              <div className="report-bar-track">
-                <div className="report-bar-fill" style={{ width: '22.7%', background: '#4f779a' }} />
-              </div>
-            </div>
-
-            <div className="report-bar-row">
-              <div className="report-bar-top">
-                <strong>Hourly Express Passes</strong>
-                <span>KSh 23,950 (8.6%)</span>
-              </div>
-              <div className="report-bar-track">
-                <div className="report-bar-fill" style={{ width: '8.6%', background: '#c58a32' }} />
-              </div>
-            </div>
+            ))}
           </div>
         </div>
 
@@ -3381,35 +3759,20 @@ function ReportsManagementView({
           </div>
 
           <div style={{ display: 'flex', flexDirection: 'column', gap: '14px', marginTop: '10px' }}>
-            <div className="report-bar-row">
-              <div className="report-bar-top">
-                <strong>M-Pesa Express (Till / Paybill)</strong>
-                <span>KSh 242,500 (85.2%)</span>
+            {methodBars.length === 0 && (
+              <p className="muted" style={{ fontSize: '12px' }}>No paid transactions recorded yet.</p>
+            )}
+            {methodBars.map((b) => (
+              <div className="report-bar-row" key={b.name}>
+                <div className="report-bar-top">
+                  <strong>{b.name}</strong>
+                  <span>KSh {b.amt.toLocaleString()} ({b.pct.toFixed(1)}%)</span>
+                </div>
+                <div className="report-bar-track">
+                  <div className="report-bar-fill" style={{ width: `${Math.min(100, b.pct)}%`, background: methodColors[b.name] || 'var(--coral)' }} />
+                </div>
               </div>
-              <div className="report-bar-track">
-                <div className="report-bar-fill" style={{ width: '85.2%', background: '#4ca574' }} />
-              </div>
-            </div>
-
-            <div className="report-bar-row">
-              <div className="report-bar-top">
-                <strong>Voucher Redemptions</strong>
-                <span>KSh 26,800 (9.4%)</span>
-              </div>
-              <div className="report-bar-track">
-                <div className="report-bar-fill" style={{ width: '9.4%', background: 'var(--coral)' }} />
-              </div>
-            </div>
-
-            <div className="report-bar-row">
-              <div className="report-bar-top">
-                <strong>Airtel Money</strong>
-                <span>KSh 15,350 (5.4%)</span>
-              </div>
-              <div className="report-bar-track">
-                <div className="report-bar-fill" style={{ width: '5.4%', background: '#d9554f' }} />
-              </div>
-            </div>
+            ))}
           </div>
         </div>
       </div>
@@ -4628,8 +4991,8 @@ function CustomersManagementView({
       <section className="metrics-grid">
         <Metric
           label="Total Subscribers"
-          value={String(customers.length + 1278)}
-          change="12.6%"
+          value={String(customers.length)}
+          change={`${activeCount} active now`}
           trend="up"
           icon={Users}
           accent="orange"
@@ -5058,7 +5421,7 @@ function RoutersManagementView({
   )
 }
 
-function Metric({ label, value, change, trend, icon: Icon, accent }: { label: string; value: string; change: string; trend: 'up' | 'down'; icon: typeof Activity; accent: string }) {
+function Metric({ label, value, change, trend, icon: Icon, accent, note = 'vs last month' }: { label: string; value: string; change: string; trend: 'up' | 'down'; icon: typeof Activity; accent: string; note?: string }) {
   return (
     <div className="metric-card">
       <div className={`metric-icon ${accent}`}><Icon size={19} /></div>
@@ -5066,7 +5429,7 @@ function Metric({ label, value, change, trend, icon: Icon, accent }: { label: st
         <span>{label}</span>
         <strong>{value}</strong>
         <small className={trend === 'down' ? 'negative' : 'positive'}>
-          {trend === 'up' ? <ArrowUpRight size={13} /> : <ArrowDownRight size={13} />} {change} <em>vs last month</em>
+          {trend === 'up' ? <ArrowUpRight size={13} /> : <ArrowDownRight size={13} />} {change} {note && <em>{note}</em>}
         </small>
       </div>
     </div>
@@ -5094,26 +5457,53 @@ function PackageRow({ name, sales, amount, width, color }: { name: string; sales
   )
 }
 
-function RevenueChart() {
+/** Revenue chart: daily Paid income for the last 30 days, from real
+ *  transactions. Falls back to an honest "no income yet" empty state — the
+ *  old version drew a hardcoded fake curve. */
+function RevenueChart({ transactions }: { transactions: Transaction[] }) {
+  const series = dailyIncomeSeries(transactions, 30)
+  const max = Math.max(...series.map((d) => d.amount))
+  const hasIncome = max > 0
+  const W = 720
+  const H = 180
+  const top = 14
+  const usable = H - top - 6
+
+  // Per-day points; days without sales sit on the baseline.
+  const step = series.length > 1 ? W / (series.length - 1) : W
+  const points = series.map((d, i) => `${(i * step).toFixed(1)},${(top + usable - (hasIncome ? (d.amount / max) * usable : 0)).toFixed(1)}`)
+  const line = `M${points.join(' L')}`
+  const area = `${line} L${W},${H} L0,${H} Z`
+  const fillId = `revfill-${Math.random().toString(36).slice(2, 8)}`
+
+  // Label ticks: first day, today, and two middles.
+  const labelIdx = series.length > 8
+    ? [0, Math.floor(series.length / 3), Math.floor((2 * series.length) / 3), series.length - 1]
+    : series.map((_, i) => i)
+
   return (
     <div className="chart">
       <div className="chart-grid"><span /><span /><span /><span /></div>
-      <svg viewBox="0 0 720 180" preserveAspectRatio="none" role="img" aria-label="Revenue trend">
-        <defs>
-          <linearGradient id="fill" x1="0" x2="0" y1="0" y2="1">
-            <stop offset="0" stopColor="#d36b4d" stopOpacity=".24" />
-            <stop offset="1" stopColor="#d36b4d" stopOpacity="0" />
-          </linearGradient>
-        </defs>
-        <path d="M0 145 C40 142 46 120 83 129 S125 146 165 105 S208 98 242 113 S276 128 315 91 S350 74 390 84 S426 105 465 67 S500 78 535 55 S575 72 612 38 S650 48 720 15 L720 180 L0 180Z" fill="url(#fill)" />
-        <path d="M0 145 C40 142 46 120 83 129 S125 146 165 105 S208 98 242 113 S276 128 315 91 S350 74 390 84 S426 105 465 67 S500 78 535 55 S575 72 612 38 S650 48 720 15" fill="none" stroke="#d36b4d" strokeWidth="3" strokeLinecap="round" />
-      </svg>
+      {hasIncome ? (
+        <svg viewBox={`0 0 ${W} ${H}`} preserveAspectRatio="none" role="img" aria-label="Daily income for the last 30 days">
+          <defs>
+            <linearGradient id={fillId} x1="0" x2="0" y1="0" y2="1">
+              <stop offset="0" stopColor="#d36b4d" stopOpacity=".24" />
+              <stop offset="1" stopColor="#d36b4d" stopOpacity="0" />
+            </linearGradient>
+          </defs>
+          <path d={area} fill={`url(#${fillId})`} />
+          <path d={line} fill="none" stroke="var(--coral)" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round" />
+        </svg>
+      ) : (
+        <div className="chart-empty">
+          <TrendingUp size={18} />
+          <p>No income recorded yet</p>
+          <small>Paid transactions will chart here day by day</small>
+        </div>
+      )}
       <div className="chart-labels">
-        <span>Aug 01</span>
-        <span>Aug 08</span>
-        <span>Aug 15</span>
-        <span>Aug 22</span>
-        <span>Aug 31</span>
+        {labelIdx.map((i) => (<span key={i}>{series[i].label}</span>))}
       </div>
     </div>
   )

@@ -745,6 +745,32 @@ button {
   font-size: 10px;
 }
 
+/* Honest empty state for the revenue chart (no paid transactions yet). */
+.chart-empty {
+  position: absolute;
+  inset: 0 0 24px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+  color: var(--muted);
+  border: 1px dashed var(--chart-grid);
+  border-radius: 10px;
+}
+
+.chart-empty p {
+  margin: 0;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text);
+}
+
+.chart-empty small {
+  font-size: 11px;
+  color: var(--muted);
+}
+
 .network-score {
   border-bottom: 1px solid var(--line);
   display: flex;
@@ -820,6 +846,266 @@ button {
 
 .health-dot.warn {
   background: #e1a245;
+}
+
+/* --- Demo-parity: Quick Actions strip (Overview header) ----------------- */
+.quick-actions {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-bottom: 14px;
+}
+
+.qa-label {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: .4px;
+  text-transform: uppercase;
+  color: var(--muted);
+  margin-right: 4px;
+}
+
+.qa-chip,
+.qa-manage {
+  border: 1px solid var(--line);
+  background: var(--card-bg);
+  color: var(--text);
+  border-radius: 999px;
+  padding: 6px 14px;
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  transition: border-color .15s ease, background .15s ease;
+}
+
+.qa-chip:hover,
+.qa-manage:hover {
+  border-color: var(--coral);
+  color: var(--coral);
+}
+
+.qa-manage {
+  border-style: dashed;
+  color: var(--muted);
+}
+
+/* --- Demo-parity: sidebar SMS gateway tile ------------------------------- */
+.sidebar-sms {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  margin: 10px 0 12px;
+  padding: 10px 11px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: var(--card-bg);
+}
+
+.sidebar-sms .sms-icon {
+  width: 30px;
+  height: 30px;
+  border-radius: 8px;
+  display: grid;
+  place-items: center;
+  background: var(--metric-icon-teal-bg);
+  color: var(--metric-icon-teal-color);
+  flex-shrink: 0;
+}
+
+.sidebar-sms div {
+  min-width: 0;
+}
+
+.sidebar-sms strong {
+  display: block;
+  font-size: 12px;
+  color: var(--ink-heading);
+}
+
+.sidebar-sms span {
+  display: block;
+  font-size: 11px;
+  color: var(--muted);
+  text-transform: capitalize;
+}
+
+.sidebar-sms .text-button {
+  margin-left: auto;
+  padding: 0;
+}
+
+/* --- Demo-parity: Data usage panel --------------------------------------- */
+.usage-panel {
+  margin-bottom: 14px;
+}
+
+.usage-tabs {
+  display: inline-flex;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  overflow: hidden;
+  flex-shrink: 0;
+}
+
+.usage-tab {
+  border: none;
+  background: transparent;
+  color: var(--muted);
+  padding: 6px 13px;
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.usage-tab.active {
+  background: var(--coral);
+  color: #fff;
+}
+
+.usage-today {
+  display: flex;
+  gap: 26px;
+  align-items: flex-start;
+  margin-top: 14px;
+  flex-wrap: wrap;
+}
+
+.usage-big strong {
+  display: block;
+  font: 700 25px Manrope, sans-serif;
+  color: var(--ink-heading);
+}
+
+.usage-big span {
+  font-size: 12px;
+  color: var(--muted);
+}
+
+.usage-devices {
+  flex: 1;
+  min-width: 220px;
+  max-width: 380px;
+}
+
+.usage-devices .health-row span {
+  text-transform: capitalize;
+}
+
+.usage-note {
+  margin: 10px 0 0;
+  font-size: 11px;
+  color: var(--muted-light);
+}
+
+.usage-chart {
+  margin-top: 14px;
+}
+
+.usage-chart-bars {
+  display: grid;
+  align-items: end;
+  gap: 3px;
+  height: 110px;
+  padding-bottom: 4px;
+  border-bottom: 1px solid var(--chart-grid);
+}
+
+.usage-chart-bars i {
+  display: block;
+  min-height: 2px;
+  background: var(--coral);
+  opacity: .82;
+  border-radius: 2px 2px 0 0;
+}
+
+.usage-chart-labels {
+  display: grid;
+  gap: 3px;
+  margin-top: 5px;
+}
+
+.usage-chart-labels span {
+  font-size: 10px;
+  color: var(--muted-light);
+  text-align: left;
+  white-space: nowrap;
+}
+
+/* Quick-action manage modal rows. */
+.qa-edit-list {
+  display: flex;
+  flex-direction: column;
+  gap: 7px;
+  margin: 12px 0;
+}
+
+.qa-edit-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 8px 11px;
+  font-size: 13px;
+}
+
+.qa-edit-actions {
+  display: inline-flex;
+  gap: 4px;
+}
+
+.qa-add-row {
+  display: flex;
+  gap: 9px;
+  margin-top: 6px;
+}
+
+.qa-add-row select {
+  flex: 1;
+}
+
+/* Offline pill (Network health panel, bridge unreachable). */
+.live-pill.offline {
+  color: #e1a245;
+}
+
+.live-pill.offline i {
+  background: #e1a245;
+}
+
+/* Honest empty/standby block for panels whose live source is unreachable
+   (Network health without a bridge, Popular packages with no sales). */
+.network-empty {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+  text-align: center;
+  padding: 18px 12px;
+  border: 1px dashed var(--chart-grid);
+  border-radius: 10px;
+  color: var(--muted);
+  margin-bottom: 10px;
+}
+
+.network-empty p {
+  margin: 0;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text);
+}
+
+.network-empty small {
+  font-size: 11px;
+  color: var(--muted);
 }
 
 .text-button {
@@ -1421,7 +1707,8 @@ th:first-child, td:first-child {
   .help-box,
   .profile div:nth-child(2),
   .profile > svg,
-  .sidebar-theme-toggle span {
+  .sidebar-theme-toggle span,
+  .sidebar-sms {
     display: none;
   }
   .workspace-switcher {
@@ -2733,23 +3020,50 @@ th:first-child, td:first-child {
   font-size: 11.5px;
 }
 
-/* --- Package panel (Customize Plan) ------------------------------------------
-   Vertically scrollable body: the panel tops out at the viewport height so
-   the form moves up/down inside it; the header stays pinned. */
-.package-modal {
+/* --- Modal panels: pinned header + scrollable body ----------------------------
+   Every modal panel uses this (add `.modal-flex` to the panel, wrap the body
+   in `.modal-scroll`). The panel tops out at the viewport height so the body
+   moves up/down inside it; the header stays pinned. The themed slim scrollbar
+   (thumb --muted-light, hover --muted) flips with the theme via design
+   tokens — no dark overrides needed. Firefox uses the shorthand; WebKit the
+   pseudo-elements. */
+.modal-flex {
   display: flex;
   flex-direction: column;
   max-height: calc(100vh - 40px);
-  padding-bottom: 21px;
 }
 
-.package-modal .modal-head {
+.modal-flex .modal-head {
   flex: 0 0 auto;
 }
 
-.package-modal .modal-scroll {
+.modal-flex .modal-scroll {
   flex: 1 1 auto;
   min-height: 0;
   overflow-y: auto;
   padding-right: 6px;
+
+  scrollbar-width: thin;
+  scrollbar-color: var(--muted-light) transparent;
 }
+
+.modal-flex .modal-scroll::-webkit-scrollbar {
+  width: 8px;
+}
+
+.modal-flex .modal-scroll::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.modal-flex .modal-scroll::-webkit-scrollbar-thumb {
+  background: var(--muted-light);
+  border-radius: 8px;
+  border: 2px solid transparent;
+  background-clip: padding-box;
+}
+
+.modal-flex .modal-scroll::-webkit-scrollbar-thumb:hover {
+  background: var(--muted);
+  background-clip: padding-box;
+}
+

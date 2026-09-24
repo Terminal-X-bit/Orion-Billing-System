@@ -44,6 +44,7 @@
           <div class="mode-switch" role="tablist">
             <button id="tabVoucher" type="button" class="active">Voucher</button>
             <button id="tabBuy" type="button">Buy with M-Pesa</button>
+            <button id="tabAccount" type="button">My account</button>
           </div>
 
           <div id="errorBox" class="status-banner err hidden" role="alert"><i></i><p id="errorMsg"></p></div>
@@ -64,6 +65,19 @@
             <button class="button primary" type="submit" id="buyBtn">Buy &amp; pay via M-Pesa</button>
             <p class="tiny">You'll get an STK push prompt on your phone — enter your PIN to confirm.</p>
           </form>
+
+          <!-- Account lookup: remaining time/data + purchase history by phone -->
+          <form id="accountForm" class="hidden">
+            <label for="accountPhone">Phone number used to pay
+              <input type="tel" id="accountPhone" name="accountPhone" placeholder="07XX XXX XXX" autocomplete="tel" inputmode="tel" />
+            </label>
+            <button class="button primary" type="submit" id="accountBtn">Check my account</button>
+          </form>
+          <div id="accountView" class="hidden">
+            <div class="account-card" id="accountCurrent"></div>
+            <h3 class="account-h3">Purchase history</h3>
+            <div id="accountHistory"></div>
+          </div>
         </section>
 
         <!-- STEP 2: payment processing -->

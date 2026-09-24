@@ -515,6 +515,18 @@ const state = {
   errors: 0,
 }
 
+/** Human label for a remaining-time duration, e.g. "5h 42m left". */
+function formatRemaining(ms) {
+  if (ms <= 0) return 'Expired'
+  const mins = Math.floor(ms / 60000)
+  const d = Math.floor(mins / 1440)
+  const h = Math.floor((mins % 1440) / 60)
+  const m = mins % 60
+  if (d > 0) return `${d}d ${h}h left`
+  if (h > 0) return `${h}h ${m}m left`
+  return `${m}m left`
+}
+
 function sendJson(res, status, body) {
   const payload = JSON.stringify(body)
   res.writeHead(status, { 'Content-Type': 'application/json', 'Content-Length': Buffer.byteLength(payload) })
@@ -545,6 +557,7 @@ const server = http.createServer(async (req, res) => {
       url.pathname === '/packages' ||
       url.pathname === '/pay' ||
       /^\/pay\/[^/]+$/.test(url.pathname) ||
+      /^\/account\/[^/]+$/.test(url.pathname) ||
       url.pathname === '/mpesa/callback'
     if (isPublicRoute) {
       if (!publicRateAllow(ip)) {
@@ -660,6 +673,81 @@ const server = http.createServer(async (req, res) => {
         order: 'price_amount.asc',
       })
       sendJson(res, 200, { packages })
+      return
+    }
+
+    // GET /account/:phone - customer self-service lookup (public route, rate
+    // limited; the "phone number" is treated as the account identifier).
+    // Returns the customer's purchase history (paid stk_requests joined to
+    // the vouchers they minted) and a live summary of their most recent
+    // active purchase: time/data remaining is derived from the same
+    // expires_at / package limits the bridge provisions into RouterOS.
+    if (req.method === 'GET' && parts[0] === 'account' && parts[1] && parts.length === 2) {
+      const { normalizePhone } = require('./src/daraja')
+      const phone = normalizePhone(decodeURIComponent(parts[1]))
+      if (!phone) {
+        sendJson(res, 400, { error: 'Invalid phone number (expected 07XX / 2547XX / +2547XX)' })
+        return
+      }
+
+      const purchases = await db.select('stk_requests', {
+        columns: 'id,package_name,amount,status,mpesa_receipt,voucher_code,created_at',
+        filters: { phone: `eq.${phone}` },
+        order: 'created_at.desc',
+        limit: 20,
+      })
+
+      // Enrich paid purchases with the minted voucher's live expiry + package
+      // limits (usage accounting lives in RouterOS, not the DB, so "data
+      // used" is approximated from the package definition).
+      const latestPaid = purchases.find((p) => p.status === 'paid' && p.voucher_code)
+      let current = null
+      if (latestPaid) {
+        const vRows = await db.select('vouchers', {
+          columns: 'code,package_name,expires_at,expired_at',
+          filters: { code: `eq.${latestPaid.voucher_code}` },
+          limit: 1,
+        })
+        const voucher = vRows[0]
+        const pkgRows = await db.select('packages', {
+          columns: 'name,duration,data_limit,speed_limit,device_limit,price_amount',
+          filters: { name: `eq.${latestPaid.package_name}` },
+          limit: 1,
+        })
+        const pkg = pkgRows[0]
+        if (voucher) {
+          const expiresAt = voucher.expires_at ? new Date(voucher.expires_at) : null
+          const expired = voucher.expired_at || (expiresAt && expiresAt.getTime() <= Date.now())
+          const remainingMs = expiresAt && !expired ? expiresAt.getTime() - Date.now() : 0
+          current = {
+            voucherCode: voucher.code,
+            packageName: voucher.package_name,
+            dataLimit: pkg?.data_limit || '—',
+            speedLimit: pkg?.speed_limit || '—',
+            devices: pkg?.device_limit || 1,
+            expiresAt: voucher.expires_at,
+            expired: !!expired,
+            remainingLabel: expired
+              ? 'Expired'
+              : expiresAt
+                ? formatRemaining(remainingMs)
+                : 'No expiry (never expires)',
+          }
+        }
+      }
+
+      sendJson(res, 200, {
+        phone,
+        current,
+        purchases: purchases.map((p) => ({
+          packageName: p.package_name,
+          amount: p.amount,
+          status: p.status,
+          mpesaReceipt: p.mpesa_receipt || undefined,
+          voucherCode: p.voucher_code || undefined,
+          createdAt: p.created_at,
+        })),
+      })
       return
     }
 

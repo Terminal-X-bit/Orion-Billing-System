@@ -59,6 +59,13 @@
   var els = {
     tabVoucher: $('tabVoucher'),
     tabBuy: $('tabBuy'),
+    tabAccount: $('tabAccount'),
+    accountForm: $('accountForm'),
+    accountPhone: $('accountPhone'),
+    accountBtn: $('accountBtn'),
+    accountView: $('accountView'),
+    accountCurrent: $('accountCurrent'),
+    accountHistory: $('accountHistory'),
     voucherForm: $('voucherForm'),
     code: $('code'),
     voucherBtn: $('voucherBtn'),
@@ -113,10 +120,14 @@
 
   function setMode(mode) {
     var voucher = mode === 'voucher'
+    var account = mode === 'account'
     els.tabVoucher.classList.toggle('active', voucher)
-    els.tabBuy.classList.toggle('active', !voucher)
+    els.tabBuy.classList.toggle('active', mode === 'buy')
+    els.tabAccount.classList.toggle('active', account)
     els.voucherForm.classList.toggle('hidden', !voucher)
-    els.buyForm.classList.toggle('hidden', voucher)
+    els.buyForm.classList.toggle('hidden', mode !== 'buy')
+    els.accountForm.classList.toggle('hidden', !account)
+    if (!account) els.accountView.classList.add('hidden')
     clearError()
   }
 
@@ -473,6 +484,77 @@
 
   els.tabVoucher.addEventListener('click', function () { setMode('voucher') })
   els.tabBuy.addEventListener('click', function () { setMode('buy') })
+  els.tabAccount.addEventListener('click', function () { setMode('account') })
+
+  // --------------------------------------------------------------------------
+  // Account lookup (GET /account/:phone)
+  // --------------------------------------------------------------------------
+
+  function escapeHtml(s) {
+    return String(s == null ? '' : s).replace(/[&<>"']/g, function (c) {
+      return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]
+    })
+  }
+
+  function renderAccount(data) {
+    var cur = data.current
+    if (cur) {
+      els.accountCurrent.innerHTML =
+        '<div class="account-row"><span>Plan</span><strong>' + escapeHtml(cur.packageName) + '</strong></div>' +
+        '<div class="account-row"><span>Status</span><strong>' +
+        (cur.expired ? 'Expired' : 'Active') + '</strong></div>' +
+        '<div class="account-row"><span>' + (cur.expired ? 'Expired' : 'Time remaining') + '</span><strong>' +
+        escapeHtml(cur.remainingLabel) + '</strong></div>' +
+        '<div class="account-row"><span>Data allowance</span><strong>' + escapeHtml(cur.dataLimit) + '</strong></div>' +
+        '<div class="account-row"><span>Speed</span><strong>' + escapeHtml(cur.speedLimit) + '</strong></div>' +
+        '<div class="account-row"><span>Devices</span><strong>' + escapeHtml(String(cur.devices)) + '</strong></div>' +
+        '<div class="account-row"><span>Voucher</span><strong>' + escapeHtml(cur.voucherCode) + '</strong></div>'
+    } else {
+      els.accountCurrent.innerHTML =
+        '<p class="tiny">No active plan found for this number. Buy one from the "Buy with M-Pesa" tab.</p>'
+    }
+    if (!data.purchases || !data.purchases.length) {
+      els.accountHistory.innerHTML = '<p class="tiny">No purchases yet.</p>'
+      return
+    }
+    els.accountHistory.innerHTML = data.purchases
+      .map(function (p) {
+        var when = new Date(p.createdAt).toLocaleString()
+        return (
+          '<div class="account-row"><span>' + escapeHtml(p.packageName) + ' — ' +
+          escapeHtml(String(p.amount)) + '</span><strong>' +
+          (p.status === 'paid' ? '✓ Paid' : p.status) +
+          (p.mpesaReceipt ? ' · ' + escapeHtml(p.mpesaReceipt) : '') +
+          '<br><small>' + escapeHtml(when) + '</small></strong></div>'
+        )
+      })
+      .join('')
+  }
+
+  els.accountForm.addEventListener('submit', async function (e) {
+    e.preventDefault()
+    var phone = els.accountPhone.value.trim()
+    if (!phone) return
+    els.accountBtn.disabled = true
+    els.accountBtn.textContent = 'Checking…'
+    try {
+      var res = await fetch('/account/' + encodeURIComponent(phone), {
+        headers: { Accept: 'application/json' },
+      })
+      var data = await res.json()
+      if (!res.ok) {
+        showError(data.error || 'Could not load account')
+        return
+      }
+      renderAccount(data)
+      els.accountView.classList.remove('hidden')
+    } catch (err) {
+      showError('Network error — try again')
+    } finally {
+      els.accountBtn.disabled = false
+      els.accountBtn.textContent = 'Check my account'
+    }
+  })
 
   var prefill = new URLSearchParams(window.location.search).get('code')
   if (prefill) {
