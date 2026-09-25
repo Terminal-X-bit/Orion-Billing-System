@@ -7,6 +7,7 @@ import {
   Maximize2, MessageSquare, Minimize2, Moon, Network, Palette, Phone, Play, Plus, Printer, Radio,
   ReceiptText, RefreshCw, Router, Save, Search, Send, Server, Settings, Settings2, Shield,
   ShieldAlert, ShieldCheck, Signal, Sliders, Smartphone, Sparkles, Sun, Tablet, Ticket,
+  History, RotateCcw,
   ToggleLeft, ToggleRight, Trash2, TrendingUp, Unlock, UserCheck, UserPlus, Users, UserX,
   Wifi, WifiOff, X, Zap, MessageCircle, SendHorizonal, Terminal, CheckCheck,
 } from 'lucide-react'
@@ -20,7 +21,7 @@ type QuickAction = { id: string; label: string; nav: string }
 const QUICK_ACTION_STORAGE_KEY = 'orion_quick_actions'
 const QUICK_ACTION_MAX = 6
 /** Pages a Quick Action may target — the operator-facing workspace views. */
-const QUICK_ACTION_TARGETS: readonly string[] = ['Overview', 'Customers', 'Packages', 'Vouchers', 'Transactions', 'Routers', 'Reports', 'Settings']
+const QUICK_ACTION_TARGETS: readonly string[] = ['Overview', 'Customers', 'Packages', 'Vouchers', 'Transactions', 'Routers', 'Reports', 'Settings', 'Logs', 'Recycle Bin']
 const DEFAULT_QUICK_ACTIONS: readonly QuickAction[] = [
   { id: 'qa-customers', label: 'Customers', nav: 'Customers' },
   { id: 'qa-vouchers', label: 'Vouchers', nav: 'Vouchers' },
@@ -49,6 +50,93 @@ function loadQuickActions(): QuickAction[] {
 function saveQuickActions(actions: QuickAction[]) {
   try { localStorage.setItem(QUICK_ACTION_STORAGE_KEY, JSON.stringify(actions)) } catch { /* non-fatal */ }
 }
+
+/** Demo-parity Activity Log: every create/delete/block/restore action is
+ *  recorded to localStorage ('orion_logs') and shown in the Logs view. */
+type ActivityLogEntry = {
+  id: string
+  action: 'create' | 'delete' | 'update' | 'block' | 'restore' | 'purge'
+  entity: string
+  detail: string
+  at: number
+}
+const LOGS_STORAGE_KEY = 'orion_logs'
+const LOGS_MAX = 200
+
+function loadActivityLogs(): ActivityLogEntry[] {
+  try {
+    const raw = localStorage.getItem(LOGS_STORAGE_KEY)
+    if (raw) {
+      const parsed: unknown = JSON.parse(raw)
+      if (Array.isArray(parsed)) {
+        return parsed
+          .filter((e): e is ActivityLogEntry =>
+            typeof e === 'object' && e !== null && typeof (e as any).id === 'string' && typeof (e as any).action === 'string' && typeof (e as any).entity === 'string' && typeof (e as any).detail === 'string' && typeof (e as any).at === 'number')
+          .slice(0, LOGS_MAX)
+      }
+    }
+  } catch { /* fall through */ }
+  return []
+}
+
+function saveActivityLogs(entries: ActivityLogEntry[]) {
+  try { localStorage.setItem(LOGS_STORAGE_KEY, JSON.stringify(entries.slice(0, LOGS_MAX))) } catch { /* non-fatal */ }
+}
+
+const ACTIVITY_META: Record<ActivityLogEntry['action'], { label: string; color: string }> = {
+  create: { label: 'Created', color: '#34786d' },
+  delete: { label: 'Deleted', color: '#d36b4d' },
+  update: { label: 'Updated', color: '#4f779a' },
+  block: { label: 'Blocked', color: '#c58a32' },
+  restore: { label: 'Restored', color: '#34786d' },
+  purge: { label: 'Purged', color: '#b03d2e' },
+}
+
+/** Demo-parity Recycle Bin: deletes are soft — records move to
+ *  'orion_recycle_bin' with deletedAt/deletedFrom and can be restored. */
+type RecycleBinItem = {
+  id: string
+  kind: 'customer' | 'package' | 'router' | 'voucher' | 'transaction'
+  label: string
+  summary: string
+  record: Record<string, unknown>
+  deletedFrom: string
+  deletedAt: number
+}
+const RECYCLE_STORAGE_KEY = 'orion_recycle_bin'
+
+function loadRecycleBin(): RecycleBinItem[] {
+  try {
+    const raw = localStorage.getItem(RECYCLE_STORAGE_KEY)
+    if (raw) {
+      const parsed: unknown = JSON.parse(raw)
+      if (Array.isArray(parsed)) {
+        return parsed.filter((e): e is RecycleBinItem =>
+          typeof e === 'object' && e !== null && typeof (e as any).id === 'string' && typeof (e as any).kind === 'string' && typeof (e as any).label === 'string' && typeof (e as any).summary === 'string' && typeof (e as any).record === 'object' && typeof (e as any).deletedFrom === 'string' && typeof (e as any).deletedAt === 'number')
+      }
+    }
+  } catch { /* fall through */ }
+  return []
+}
+
+function saveRecycleBin(items: RecycleBinItem[]) {
+  try { localStorage.setItem(RECYCLE_STORAGE_KEY, JSON.stringify(items)) } catch { /* non-fatal */ }
+}
+
+const RECYCLE_KIND_LABEL: Record<RecycleBinItem['kind'], string> = {
+  customer: 'Customer',
+  package: 'Package',
+  router: 'Router',
+  voucher: 'Voucher',
+  transaction: 'Payment',
+}
+
+/** Privacy mode: masks money strings on the Overview ('orion_privacy_mode'). */
+const PRIVACY_STORAGE_KEY = 'orion_privacy_mode'
+function loadPrivacyMode(): boolean {
+  try { return localStorage.getItem(PRIVACY_STORAGE_KEY) === '1' } catch { return false }
+}
+const PRIVACY_MASK = 'KSh ****'
 
 /** Usage chart window selector, mirroring the demo's Today/Weekly/Monthly tabs. */
 type UsageWindow = 'today' | 'week' | 'month'
@@ -1125,6 +1213,89 @@ function OperatorDashboard({
   const [dbConnected, setDbConnected] = useState(false)
   const [syncing, setSyncing] = useState(false)
 
+  // --- Demo-parity entities state: activity log, recycle bin, privacy mode ---
+  const [activityLogs, setActivityLogs] = useState<ActivityLogEntry[]>(loadActivityLogs)
+  const [recycleBin, setRecycleBin] = useState<RecycleBinItem[]>(loadRecycleBin)
+  const [privacyMode, setPrivacyMode] = useState<boolean>(loadPrivacyMode)
+
+  const logActivity = (action: ActivityLogEntry['action'], entity: string, detail: string) => {
+    setActivityLogs((prev) => {
+      const next = [
+        { id: `log-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`, action, entity, detail, at: Date.now() },
+        ...prev,
+      ].slice(0, LOGS_MAX)
+      saveActivityLogs(next)
+      return next
+    })
+  }
+
+  const moveToRecycleBin = (kind: RecycleBinItem['kind'], label: string, summary: string, record: Record<string, unknown>, deletedFrom: string) => {
+    setRecycleBin((prev) => {
+      const next = [
+        { id: String(record.id ?? `rb-${Date.now()}`), kind, label, summary, record, deletedFrom, deletedAt: Date.now() },
+        ...prev,
+      ]
+      saveRecycleBin(next)
+      return next
+    })
+  }
+
+  const restoreFromRecycleBin = (itemId: string) => {
+    const item = recycleBin.find((r) => r.id === itemId)
+    if (!item) return
+    switch (item.kind) {
+      case 'customer': setCustomersList((prev) => [item.record as unknown as CustomerRecord, ...prev]); break
+      case 'package': setPackages((prev) => [item.record as unknown as HotspotPackage, ...prev]); break
+      case 'router': setRouterDevices((prev) => [item.record as unknown as RouterDevice, ...prev]); break
+      case 'voucher': setVouchersList((prev) => [item.record as unknown as VoucherRecord, ...prev]); break
+      case 'transaction': setTransactionsList((prev) => [item.record as unknown as Transaction, ...prev]); break
+    }
+    setRecycleBin((prev) => {
+      const next = prev.filter((r) => r.id !== itemId)
+      saveRecycleBin(next)
+      return next
+    })
+    logActivity('restore', item.kind, `Restored ${RECYCLE_KIND_LABEL[item.kind].toLowerCase()} "${item.label}" from the recycle bin`)
+    setNotice(`✅ ${item.label} restored to ${item.deletedFrom}`)
+    window.setTimeout(() => setNotice(''), 2500)
+  }
+
+  const purgeFromRecycleBin = (itemId: string) => {
+    const item = recycleBin.find((r) => r.id === itemId)
+    if (!item) return
+    setRecycleBin((prev) => {
+      const next = prev.filter((r) => r.id !== itemId)
+      saveRecycleBin(next)
+      return next
+    })
+    logActivity('purge', item.kind, `Permanently deleted ${RECYCLE_KIND_LABEL[item.kind].toLowerCase()} "${item.label}"`)
+    setNotice(`${item.label} permanently deleted`)
+    window.setTimeout(() => setNotice(''), 2500)
+  }
+
+  const emptyRecycleBin = () => {
+    const count = recycleBin.length
+    if (count === 0) return
+    setRecycleBin(() => { saveRecycleBin([]); return [] })
+    logActivity('purge', 'recycle bin', `Emptied the recycle bin (${count} item${count === 1 ? '' : 's'})`)
+    setNotice(`Recycle bin emptied — ${count} item${count === 1 ? '' : 's'} removed permanently`)
+    window.setTimeout(() => setNotice(''), 2500)
+  }
+
+  const clearActivityLogs = () => {
+    setActivityLogs(() => { saveActivityLogs([]); return [] })
+    setNotice('Activity log cleared')
+    window.setTimeout(() => setNotice(''), 2500)
+  }
+
+  const togglePrivacyMode = () => {
+    setPrivacyMode((prev) => {
+      const next = !prev
+      try { localStorage.setItem(PRIVACY_STORAGE_KEY, next ? '1' : '0') } catch { /* non-fatal */ }
+      return next
+    })
+  }
+
   // Live MikroTik bridge state (polls the on-prem bridge; real RouterOS data).
   const mikrotik = useMikrotik()
   const [liveSessions, setLiveSessions] = useState<LiveSession[]>([])
@@ -1221,6 +1392,11 @@ function OperatorDashboard({
   // Sidebar SMS-gateway status — mirrors the real gateway configuration; no
   // balance is shown because no provider balance API is wired up yet.
   const smsGateway = getSmsConfig()
+
+  // M-Pesa STK status strip — derived from real configuration, never hardcoded:
+  // till + passkey come from Settings, the live flag from the gateway config.
+  const stkReady = Boolean(settings.mpesaTill.trim() && settings.mpesaPasskey.trim())
+  const stkState: 'live' | 'ready' | 'off' = !stkReady ? 'off' : smsGateway.smsEnabled ? 'live' : 'ready'
 
   // Popular packages — ranked by real Paid revenue per package name.
   const packageRevenue = new Map<string, { count: number; revenue: number }>()
@@ -1534,8 +1710,11 @@ function OperatorDashboard({
         await client.from('vouchers').delete().eq('id', id)
       } catch (e) {}
     }
+    const victim = vouchersList.find((v) => v.id === id)
+    if (victim) moveToRecycleBin('voucher', `Voucher ${code}`, `${victim.package_name} · KSh ${victim.price}`, victim as unknown as Record<string, unknown>, 'Vouchers')
     setVouchersList((prev) => prev.filter((v) => v.id !== id))
-    setNotice(`Voucher ${code} removed`)
+    logActivity('delete', 'voucher', `Deleted voucher ${code}${victim ? ` (${victim.package_name})` : ''}`)
+    setNotice(`Voucher ${code} removed — restore it from the Recycle Bin`)
     window.setTimeout(() => setNotice(''), 2500)
   }
 
@@ -1571,6 +1750,7 @@ function OperatorDashboard({
       } catch (e) {}
     }
 
+    logActivity('create', 'transaction', `Recorded payment of ${newTrx.amount} from ${newTrx.customer}`)
     setTransactionsList((prev) => [newTrx, ...prev])
     setShowRecordTrx(false)
     setNewTrxCust('')
@@ -1771,8 +1951,11 @@ function OperatorDashboard({
         await client.from('routers').delete().eq('id', routerId)
       } catch (e) {}
     }
+    const victim = routerDevices.find((r) => r.id === routerId)
+    if (victim) moveToRecycleBin('router', routerName, `${victim.model} · ${victim.ip_address}`, victim as unknown as Record<string, unknown>, 'Routers')
     setRouterDevices((prev) => prev.filter((r) => r.id !== routerId))
-    setNotice(`${routerName} removed from workspace`)
+    logActivity('delete', 'router', `Deleted router ${routerName}`)
+    setNotice(`${routerName} removed — restore it from the Recycle Bin`)
     window.setTimeout(() => setNotice(''), 2500)
   }
 
@@ -1809,6 +1992,7 @@ function OperatorDashboard({
       } catch (e) {}
     }
 
+    logActivity('create', 'router', `Registered router ${newDevice.name} (${newDevice.ip_address})`)
     setRouterDevices((prev) => [newDevice, ...prev])
     setShowAddRouter(false)
     setNewRouterName('')
@@ -1821,6 +2005,7 @@ function OperatorDashboard({
   // Customer Handlers
   const handleToggleBlockCustomer = (customer: CustomerRecord) => {
     const nextStatus = customer.status === 'blocked' ? 'active' : 'blocked'
+    logActivity(nextStatus === 'blocked' ? 'block' : 'update', 'customer', nextStatus === 'blocked' ? `Blocked ${customer.name} from Wi-Fi access` : `Unblocked ${customer.name}`)
     setCustomersList((prev) =>
       prev.map((c) => (c.id === customer.id ? { ...c, status: nextStatus } : c))
     )
@@ -1839,8 +2024,11 @@ function OperatorDashboard({
         await client.from('customers').delete().eq('id', customerId)
       } catch (e) {}
     }
+    const victim = customersList.find((c) => c.id === customerId)
+    if (victim) moveToRecycleBin('customer', customerName, `${victim.phone} · ${victim.plan}`, victim as unknown as Record<string, unknown>, 'Customers')
     setCustomersList((prev) => prev.filter((c) => c.id !== customerId))
-    setNotice(`Customer ${customerName} removed`)
+    logActivity('delete', 'customer', `Deleted customer ${customerName}`)
+    setNotice(`Customer ${customerName} removed — restore them from the Recycle Bin`)
     window.setTimeout(() => setNotice(''), 2500)
   }
 
@@ -1876,6 +2064,7 @@ function OperatorDashboard({
       } catch (e) {}
     }
 
+    logActivity('create', 'customer', `Added customer ${newCust.name} (${newCust.plan})`)
     setCustomersList((prev) => [newCust, ...prev])
     setShowAddCustomer(false)
     setNewCustName('')
@@ -1919,7 +2108,10 @@ function OperatorDashboard({
         await client.from('packages').delete().eq('id', pkgId)
       } catch (e) {}
     }
+    const victim = packages.find((p) => p.id === pkgId)
+    if (victim) moveToRecycleBin('package', pkgName, `${victim.category} · KSh ${victim.price}`, victim as unknown as Record<string, unknown>, 'Packages')
     setPackages((prev) => prev.filter((p) => p.id !== pkgId))
+    logActivity('delete', 'package', `Deleted package "${pkgName}"`)
     setNotice(`Package "${pkgName}" deleted`)
     window.setTimeout(() => setNotice(''), 2500)
   }
@@ -1960,6 +2152,7 @@ function OperatorDashboard({
       } catch (e) {}
     }
 
+    logActivity('create', 'package', `Created package "${newPackage.name}" at KSh ${newPackage.price}`)
     setPackages((prev) => [newPackage, ...prev])
     setShowAddPackage(false)
     setNewPkgName('')
@@ -2016,7 +2209,7 @@ function OperatorDashboard({
             </button>
           ))}
           <p className="nav-label support-label">Manage</p>
-          {[["Reports", Activity], ["Settings", Settings2]].map(([label, Icon]) => (
+          {[["Reports", Activity], ["Logs", History], ["Recycle Bin", Trash2], ["Settings", Settings2]].map(([label, Icon]) => (
             <button
               key={label as string}
               className={`nav-item ${activeNav === label ? 'active' : ''}`}
@@ -2024,6 +2217,8 @@ function OperatorDashboard({
             >
               <Icon size={18} />
               <span>{label as string}</span>
+              {label === 'Logs' && activityLogs.length > 0 && <b className="nav-count">{activityLogs.length}</b>}
+              {label === 'Recycle Bin' && recycleBin.length > 0 && <b className="nav-count" style={{ background: 'var(--coral-subtle)', color: 'var(--coral)' }}>{recycleBin.length}</b>}
             </button>
           ))}
         </nav>
@@ -2175,6 +2370,15 @@ function OperatorDashboard({
                   <p className="heading-sub">Here is what is happening across your hotspot today.</p>
                 </div>
                 <div className="heading-actions">
+                  <button
+                    className={`button secondary privacy-eye ${privacyMode ? 'on' : ''}`}
+                    onClick={togglePrivacyMode}
+                    aria-label={privacyMode ? 'Show income amounts' : 'Hide income amounts'}
+                    title={privacyMode ? 'Income hidden — click to reveal' : 'Hide income amounts'}
+                  >
+                    {privacyMode ? <EyeOff size={16} /> : <Eye size={16} />}
+                    {privacyMode ? 'Amounts hidden' : 'Privacy mode'}
+                  </button>
                   <button className="button secondary" onClick={() => setActiveNav('Reports')}>
                     <ArrowDownRight size={16} /> View reports
                   </button>
@@ -2182,6 +2386,17 @@ function OperatorDashboard({
                     <Plus size={17} /> Create voucher
                   </button>
                 </div>
+              </section>
+
+              <section
+                className={`stk-strip ${stkState === 'live' ? 'ok' : stkState === 'ready' ? 'ready' : 'off'}`}
+                aria-live="polite"
+              >
+                <span className="stk-dot" />
+                <strong>M-Pesa STK Push Service</strong>
+                {stkState === 'live' && <em>Live — Safaricom Daraja configured (Till {settings.mpesaTill})</em>}
+                {stkState === 'ready' && <em>Ready — Till & passkey set, enable the SMS gateway in Settings to go live</em>}
+                {stkState === 'off' && <em>Not configured — add your Till number and passkey in Settings</em>}
               </section>
 
               <section className="quick-actions">
@@ -2195,8 +2410,8 @@ function OperatorDashboard({
               </section>
 
               <section className="metrics-grid">
-                <Metric label="Income today" value={formatKsh(todayIncome)} change={`${todayCount} payments`} trend="up" icon={CircleDollarSign} accent="green" note="" />
-                <Metric label="Income this month" value={formatKsh(monthIncome)} change={`${monthCount} payments`} trend="up" icon={TrendingUp} accent="orange" note="" />
+                <Metric label="Income today" value={privacyMode ? PRIVACY_MASK : formatKsh(todayIncome)} change={`${todayCount} payments`} trend="up" icon={CircleDollarSign} accent="green" note="" />
+                <Metric label="Income this month" value={privacyMode ? PRIVACY_MASK : formatKsh(monthIncome)} change={`${monthCount} payments`} trend="up" icon={TrendingUp} accent="orange" note="" />
                 <Metric label="Active / expired" value={activeExpiredSplit(vouchersList)} change={`${vouchersList.length} vouchers`} trend="up" icon={Users} accent="teal" note="" />
                 <Metric label="Total users" value={String(customersList.length)} change={`${customersList.filter((c) => c.status === 'active').length} active`} trend="up" icon={Users} accent="blue" note="" />
                 <Metric label="Hotspot online" value={String(liveSessionCount)} change={liveSessions.length > 0 ? 'Live from router' : `${sessions.length} demo rows`} trend="up" icon={Wifi} accent="teal" note="" />
@@ -2214,7 +2429,7 @@ function OperatorDashboard({
                     <button className="select-button">Last 30 days <ChevronDown size={14} /></button>
                   </div>
                   <div className="revenue-total">
-                    <strong>{formatKsh(paidRevenue)}</strong>
+                    <strong>{privacyMode ? PRIVACY_MASK : formatKsh(paidRevenue)}</strong>
                     <span className="positive">{paidCount} payments · all time</span>
                   </div>
                   <RevenueChart transactions={transactionsList} />
@@ -2451,7 +2666,7 @@ function OperatorDashboard({
                             </span>
                           </td>
                           <td>{transaction.package}</td>
-                          <td><strong>{transaction.amount}</strong></td>
+                          <td><strong>{privacyMode ? PRIVACY_MASK : transaction.amount}</strong></td>
                           <td><span className={`status ${transaction.status.toLowerCase()}`}>{transaction.status}</span></td>
                           <td className="muted">{transaction.time}</td>
                         </tr>
@@ -2522,6 +2737,109 @@ function OperatorDashboard({
               onDelete={handleDeleteRouter}
               onAddNewClick={() => setShowAddRouter(true)}
             />
+          )}
+
+          {activeNav === 'Logs' && (
+            <section className="page-view">
+              <section className="page-heading">
+                <div>
+                  <p className="eyebrow">Audit trail</p>
+                  <h1>Activity Logs</h1>
+                  <p className="heading-sub">Every create, delete, block and restore action on this workspace — newest first.</p>
+                </div>
+                <div className="heading-actions">
+                  <button className="button secondary" onClick={clearActivityLogs} disabled={activityLogs.length === 0}>
+                    <Trash2 size={16} /> Clear log
+                  </button>
+                </div>
+              </section>
+              <section className="panel">
+                {activityLogs.length === 0 ? (
+                  <div className="network-empty logs-empty">
+                    <History size={18} />
+                    <p>No activity yet</p>
+                    <small>Actions like creating vouchers or deleting customers are recorded here</small>
+                  </div>
+                ) : (
+                  <div className="log-list">
+                    {activityLogs.map((entry) => {
+                      const meta = ACTIVITY_META[entry.action]
+                      return (
+                        <div key={entry.id} className="log-row">
+                          <span className="log-badge" style={{ background: `${meta.color}1c`, color: meta.color }}>{meta.label}</span>
+                          <div className="log-body">
+                            <strong>{entry.detail}</strong>
+                            <small>{entry.entity} · {new Date(entry.at).toLocaleString(undefined, { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })}</small>
+                          </div>
+                        </div>
+                      )
+                    })}
+                  </div>
+                )}
+              </section>
+            </section>
+          )}
+
+          {activeNav === 'Recycle Bin' && (
+            <section className="page-view">
+              <section className="page-heading">
+                <div>
+                  <p className="eyebrow">Safety net</p>
+                  <h1>Recycle Bin</h1>
+                  <p className="heading-sub">Deleted customers, packages, routers, vouchers and payments land here before permanent removal.</p>
+                </div>
+                <div className="heading-actions">
+                  <button className="button secondary danger" onClick={emptyRecycleBin} disabled={recycleBin.length === 0}>
+                    <Trash2 size={16} /> Empty bin
+                  </button>
+                </div>
+              </section>
+              <section className="panel">
+                {recycleBin.length === 0 ? (
+                  <div className="network-empty logs-empty">
+                    <Trash2 size={18} />
+                    <p>Recycle bin is empty</p>
+                    <small>Deleted items rest here and can be restored any time</small>
+                  </div>
+                ) : (
+                  <div className="table-wrap">
+                    <table>
+                      <thead>
+                        <tr>
+                          <th>Item</th>
+                          <th>Type</th>
+                          <th>Details</th>
+                          <th>Deleted from</th>
+                          <th>When</th>
+                          <th>Actions</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {recycleBin.map((item) => (
+                          <tr key={`${item.kind}-${item.id}`}>
+                            <td><strong className="transaction-id">{item.label}</strong></td>
+                            <td><span className={`status active`}>{RECYCLE_KIND_LABEL[item.kind]}</span></td>
+                            <td>{item.summary}</td>
+                            <td className="muted">{item.deletedFrom}</td>
+                            <td className="muted">{new Date(item.deletedAt).toLocaleString(undefined, { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })}</td>
+                            <td>
+                              <div className="rb-actions">
+                                <button className="button secondary" onClick={() => restoreFromRecycleBin(item.id)}>
+                                  <RotateCcw size={14} /> Restore
+                                </button>
+                                <button className="icon-button rb-purge" aria-label={`Permanently delete ${item.label}`} title="Delete permanently" onClick={() => purgeFromRecycleBin(item.id)}>
+                                  <Trash2 size={14} />
+                                </button>
+                              </div>
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                )}
+              </section>
+            </section>
           )}
 
           {activeNav === 'Reports' && (
@@ -3450,6 +3768,7 @@ function TransactionsManagementView({
   // Derived totals — mirrors the Overview derivations so the two views can
   // never contradict each other.
   const paid = transactions.filter((t) => t.status === 'Paid')
+  const paidCount = paid.length
   const paidRevenue = paid.reduce((acc, t) => acc + parseKsh(t.amount), 0)
   const mpesaRevenue = paid.filter((t) => t.method === 'M-Pesa').reduce((acc, t) => acc + parseKsh(t.amount), 0)
   const voucherRevenue = paid.filter((t) => t.method === 'Voucher').reduce((acc, t) => acc + parseKsh(t.amount), 0)
