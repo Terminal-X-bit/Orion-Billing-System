@@ -161,6 +161,19 @@ import {
   formatE164Phone,
   DEFAULT_SMS_CONFIG,
 } from './lib/smsService'
+import { Sidebar } from './components/Sidebar'
+import { SecurityAlertBanner } from './components/SecurityAlertBanner'
+import { FreelspDashboardCards } from './components/FreelspDashboardCards'
+import { ActivationView } from './components/views/ActivationView'
+import { HotspotBindingView } from './components/views/HotspotBindingView'
+import { LeadsView } from './components/views/LeadsView'
+import { DataUsageView } from './components/views/DataUsageView'
+import { SupportTicketsView } from './components/views/SupportTicketsView'
+import { NotificationsView } from './components/views/NotificationsView'
+import { NetworkManagementView } from './components/views/NetworkManagementView'
+import { DiagnosticsView } from './components/views/DiagnosticsView'
+import { CompensateModal } from './components/CompensateModal'
+import { DisableHotspotModal } from './components/DisableHotspotModal'
 
 type Session = { id?: string; name: string; device: string; location: string; plan: string; usage: string; progress: number; color: string; live?: boolean }
 type LiveSession = Session & { id: string; live: true }
@@ -205,6 +218,13 @@ export type CustomerRecord = {
   status: 'active' | 'idle' | 'blocked'
   last_active: string
   avatar_color: string
+  usage?: string
+  connectedDevice?: string
+  ipAddress?: string
+  macAddress?: string
+  firstSeen?: string
+  lastSeen?: string
+  totalPaidKsh?: number
 }
 
 export type HotspotPackage = {
@@ -1217,6 +1237,43 @@ function OperatorDashboard({
   const [activityLogs, setActivityLogs] = useState<ActivityLogEntry[]>(loadActivityLogs)
   const [recycleBin, setRecycleBin] = useState<RecycleBinItem[]>(loadRecycleBin)
   const [privacyMode, setPrivacyMode] = useState<boolean>(loadPrivacyMode)
+  const [showCompensateModal, setShowCompensateModal] = useState(false)
+  const [showDisableHotspotModal, setShowDisableHotspotModal] = useState(false)
+  const [selectedRouterView, setSelectedRouterView] = useState('All Routers - System Wide')
+  const [isRefreshingOnline, setIsRefreshingOnline] = useState(false)
+  const [sidebarOpen, setSidebarOpen] = useState(true)
+  const [userSearchText, setUserSearchText] = useState('')
+
+  const handleNavSelect = (navId: string) => {
+    if (navId === 'Compensate') {
+      setShowCompensateModal(true)
+      return
+    }
+    if (navId === 'Disable Hotspot Server') {
+      setShowDisableHotspotModal(true)
+      return
+    }
+    if (navId === 'Customers:AddNew') {
+      setShowAddCustomer(true)
+      setActiveNav('Customers:Users')
+      return
+    }
+    if (navId === 'Vouchers:Add') {
+      setShowVoucher(true)
+      setActiveNav('Vouchers:All')
+      return
+    }
+    if (navId === 'Vouchers:Print') {
+      setShowPrintVouchers(true)
+      setActiveNav('Vouchers:All')
+      return
+    }
+    if (navId === 'Binding:Bind') {
+      setActiveNav('Binding:All')
+      return
+    }
+    setActiveNav(navId)
+  }
 
   const logActivity = (action: ActivityLogEntry['action'], entity: string, detail: string) => {
     setActivityLogs((prev) => {
@@ -2174,103 +2231,29 @@ function OperatorDashboard({
 
   return (
     <div className="app-shell">
-      <aside className="sidebar">
-        <div className="brand">
-          <div className="brand-mark"><Signal size={20} /></div>
-          <span>orion<span className="brand-dot">.</span></span>
-        </div>
-        <div className="workspace-switcher">
-          <div className="workspace-avatar" style={{ background: settings.primaryColor }}>
-            {settings.businessName.charAt(0)}
-          </div>
-          <div>
-            <strong>{settings.businessName}</strong>
-            <span>{settings.location}</span>
-          </div>
-          <ChevronDown size={15} />
-        </div>
-        <nav>
-          <p className="nav-label">Workspace</p>
-          {[
-            ['Overview', LayoutDashboard], ['Customers', Users], ['Packages', Ticket], ['Vouchers', ReceiptText],
-            ['Transactions', CreditCard], ['Routers', Router],
-          ].map(([label, Icon]) => (
-            <button
-              key={label as string}
-              className={`nav-item ${activeNav === label ? 'active' : ''}`}
-              onClick={() => setActiveNav(label as string)}
-            >
-              <Icon size={18} />
-              <span>{label as string}</span>
-              {label === 'Packages' && <b className="nav-count" style={{ background: '#fdf1e7', color: 'var(--coral)' }}>{packages.length}</b>}
-              {label === 'Customers' && <b className="nav-count" style={{ background: '#eaf3eb', color: '#34786d' }}>{customersList.length}</b>}
-              {label === 'Vouchers' && <b className="nav-count">{vouchersList.filter((v) => v.status === 'active').length}</b>}
-              {label === 'Routers' && <b className="nav-count" style={{ background: 'var(--metric-icon-teal-bg)', color: 'var(--metric-icon-teal-color)' }}>{routerDevices.length}</b>}
-            </button>
-          ))}
-          <p className="nav-label support-label">Manage</p>
-          {[["Reports", Activity], ["Logs", History], ["Recycle Bin", Trash2], ["Settings", Settings2]].map(([label, Icon]) => (
-            <button
-              key={label as string}
-              className={`nav-item ${activeNav === label ? 'active' : ''}`}
-              onClick={() => setActiveNav(label as string)}
-            >
-              <Icon size={18} />
-              <span>{label as string}</span>
-              {label === 'Logs' && activityLogs.length > 0 && <b className="nav-count">{activityLogs.length}</b>}
-              {label === 'Recycle Bin' && recycleBin.length > 0 && <b className="nav-count" style={{ background: 'var(--coral-subtle)', color: 'var(--coral)' }}>{recycleBin.length}</b>}
-            </button>
-          ))}
-        </nav>
-        <div className="sidebar-sms">
-          <div className="sms-icon"><MessageSquare size={15} /></div>
-          <div>
-            <strong>{smsGateway.smsEnabled ? 'SMS gateway active' : 'SMS gateway off'}</strong>
-            <span>{smsGateway.provider === 'custom_webhook' ? 'Custom webhook' : smsGateway.provider === 'simulator' ? 'Simulator mode' : smsGateway.provider}</span>
-          </div>
-          <button className="text-button" onClick={() => setActiveNav('Settings')}>
-            Manage <ArrowUpRight size={13} />
-          </button>
-        </div>
-        <div className="sidebar-bottom">
-          <div className="help-box">
-            <div className="help-icon"><LifeBuoy size={17} /></div>
-            <strong>Need a hand?</strong>
-            <span>Visit the help center</span>
-          </div>
-
-          <button
-            className="sidebar-theme-toggle"
-            onClick={handleThemeToggle}
-            aria-label={`Switch to ${theme === 'dark' ? 'light' : 'dark'} mode`}
-            title={`Switch to ${theme === 'dark' ? 'light' : 'dark'} mode`}
-          >
-            <span>Appearance</span>
-            <div className="theme-pill">
-              {theme === 'dark' ? <Sun size={13} /> : <Moon size={13} />}
-              <span>{theme === 'dark' ? 'Dark' : 'Light'}</span>
-            </div>
-          </button>
-
-          <div className="profile" style={{ position: 'relative' }}>
-            <div className="profile-avatar">{operator.avatar}</div>
-            <div>
-              <strong>{operator.name}</strong>
-              <span style={{ display: 'inline-flex', alignItems: 'center', gap: '3px' }}>
-                <ShieldCheck size={11} color="#4ca574" /> {operator.role}
-              </span>
-            </div>
-            <button
-              className="icon-button"
-              title="Sign Out & Lock Workspace"
-              onClick={onLogout}
-              aria-label="Sign Out"
-            >
-              <LogOut size={16} />
-            </button>
-          </div>
-        </div>
-      </aside>
+      <Sidebar
+        activeNav={activeNav}
+        onSelectNav={handleNavSelect}
+        theme={theme}
+        onToggleTheme={handleThemeToggle}
+        onLogout={onLogout}
+        businessName={settings.businessName}
+        location={settings.location}
+        primaryColor={settings.primaryColor}
+        operatorName={operator.name}
+        operatorRole={operator.role}
+        smsActive={smsGateway.smsEnabled}
+        smsProvider={smsGateway.provider}
+        totalVouchersCount={vouchersList.length}
+        totalCustomersCount={customersList.length}
+        totalRoutersCount={routerDevices.length}
+        totalLogsCount={activityLogs.length}
+        totalRecycleCount={recycleBin.length}
+        isOpen={sidebarOpen}
+        onToggleOpen={() => setSidebarOpen(!sidebarOpen)}
+        onOpenCompensate={() => setShowCompensateModal(true)}
+        onOpenDisableHotspot={() => setShowDisableHotspotModal(true)}
+      />
 
       <main className="main-content">
         {showQuickActions && (
@@ -2314,55 +2297,207 @@ function OperatorDashboard({
           </div>
         )}
         <header className="topbar">
-          <div className="breadcrumb">
-            <span>{settings.businessName}</span>
-            <span>/</span>
-            <strong>{activeNav}</strong>
-          </div>
-          <div className="top-actions">
-            <div
-              className="live-pill"
-              style={{ padding: '6px 10px', cursor: 'pointer' }}
-              title="Supabase Database Status"
-              onClick={() => setShowDbSettings(true)}
-            >
-              <Database size={13} />
-              <span>{syncing ? 'Syncing...' : dbConnected ? 'Live DB' : 'Workspace Ready'}</span>
-            </div>
-
+          <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
             <button
               className="icon-button"
-              aria-label="Refresh Data"
-              title="Sync data"
-              onClick={() => {
-                void loadAllDatabaseData()
-                setNotice('Workspace synchronized')
-                window.setTimeout(() => setNotice(''), 2000)
-              }}
+              onClick={() => setSidebarOpen(!sidebarOpen)}
+              title="Toggle Menu"
+              aria-label="Toggle navigation menu"
             >
-              <RefreshCw size={17} className={syncing ? 'spinning' : ''} />
+              <Signal size={18} />
             </button>
+            <div className="breadcrumb">
+              <span>{settings.businessName}</span>
+              <span>/</span>
+              <strong>{activeNav}</strong>
+            </div>
+            {/* Search users input matching Screenshot 1 */}
+            <div style={{ position: 'relative', display: 'flex', alignItems: 'center' }}>
+              <input
+                type="text"
+                placeholder="Search users..."
+                value={userSearchText}
+                onChange={(e) => setUserSearchText(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter') {
+                    setActiveNav('Customers:Users')
+                  }
+                }}
+                style={{
+                  height: '32px',
+                  padding: '4px 30px 4px 10px',
+                  borderRadius: '6px',
+                  fontSize: '12px',
+                  border: '1px solid var(--line)',
+                  background: 'var(--card-subtle-bg)',
+                  width: '180px',
+                }}
+              />
+              <button
+                type="button"
+                onClick={() => setActiveNav('Customers:Users')}
+                style={{
+                  position: 'absolute',
+                  right: '6px',
+                  background: 'none',
+                  border: 'none',
+                  cursor: 'pointer',
+                  color: 'var(--muted)',
+                  display: 'grid',
+                  placeItems: 'center',
+                }}
+              >
+                <Search size={14} />
+              </button>
+            </div>
+          </div>
 
-            <button className="icon-button" aria-label="Search" onClick={() => setNotice('Search is ready for your workspace')}><Search size={19} /></button>
-            <button className="icon-button notification" aria-label="Notifications" onClick={() => setNotice('You are all caught up')}><Bell size={19} /><i /></button>
+          <div className="top-actions">
+            {/* App update available badge matching Screenshot 3 & 4 */}
+            <span
+              className="badge"
+              style={{ background: '#0284c7', color: '#fff', fontSize: '11px', cursor: 'pointer' }}
+              title="A software update is available for your billing gateway"
+              onClick={() => setNotice('Orion RouterOS Gateway v2.4 is running the latest stable build.')}
+            >
+              App update available ☁
+            </span>
 
+            {/* Light / Dark Mode Toggle Button matching Screenshot 1 */}
             <button
-              className="theme-toggle-btn"
+              className="button secondary"
               onClick={handleThemeToggle}
+              style={{ fontSize: '12px', padding: '5px 10px', display: 'flex', alignItems: 'center', gap: '6px' }}
               aria-label={`Switch to ${theme === 'dark' ? 'light' : 'dark'} mode`}
-              title={`Switch to ${theme === 'dark' ? 'light' : 'dark'} mode`}
             >
-              {theme === 'dark' ? <Sun size={16} /> : <Moon size={16} />}
-              <span>{theme === 'dark' ? 'Light mode' : 'Dark mode'}</span>
+              {theme === 'dark' ? <Sun size={14} /> : <Moon size={14} />}
+              <span>{theme === 'dark' ? 'Light' : 'Dark'}</span>
             </button>
 
-            <div className="date-control"><Clock3 size={16} /> Aug 01 – Aug 31 <ChevronDown size={14} /></div>
+            {/* Country indicator: Kenyan Flag KE matching Screenshot 1 */}
+            <div
+              className="date-control"
+              style={{ padding: '5px 9px', fontSize: '12px', cursor: 'default' }}
+              title="Kenya - KES Currency Enabled"
+            >
+              <span>🇰🇪 KE</span>
+            </div>
+
+            {/* Quick Actions matching Screenshot 1 */}
+            <button
+              className="button secondary"
+              onClick={() => setShowQuickActions(true)}
+              style={{ fontSize: '12px', padding: '5px 10px', display: 'flex', alignItems: 'center', gap: '6px' }}
+            >
+              <Zap size={14} color="var(--coral)" />
+              <span>Quick Actions</span>
+              <ChevronDown size={12} />
+            </button>
+
+            {/* Notification bell with red badge 0 matching Screenshot 1 */}
+            <button
+              className="icon-button notification"
+              aria-label="Notifications"
+              onClick={() => setActiveNav('Notifications:History')}
+              style={{ position: 'relative' }}
+            >
+              <Bell size={18} />
+              <span
+                style={{
+                  position: 'absolute',
+                  top: '2px',
+                  right: '2px',
+                  background: '#ef4444',
+                  color: '#fff',
+                  borderRadius: '10px',
+                  fontSize: '9px',
+                  fontWeight: 800,
+                  padding: '1px 5px',
+                  lineHeight: 1,
+                }}
+              >
+                0
+              </span>
+            </button>
+
+            {/* Demo Account Dropdown matching Screenshot 1 */}
+            <div
+              style={{
+                display: 'flex',
+                alignItems: 'center',
+                gap: '8px',
+                padding: '4px 8px',
+                borderRadius: '6px',
+                background: 'var(--card-subtle-bg)',
+                border: '1px solid var(--line)',
+                cursor: 'pointer',
+              }}
+              onClick={() => setActiveNav('Settings')}
+              title="Operator Settings"
+            >
+              <div
+                style={{
+                  width: '24px',
+                  height: '24px',
+                  borderRadius: '50%',
+                  background: 'var(--coral)',
+                  color: '#fff',
+                  display: 'grid',
+                  placeItems: 'center',
+                  fontSize: '11px',
+                  fontWeight: 700,
+                }}
+              >
+                {operator.avatar || 'D'}
+              </div>
+              <strong style={{ fontSize: '12px' }}>Demo Account</strong>
+            </div>
           </div>
         </header>
 
         <div className="page-wrap">
-          {activeNav === 'Overview' && (
+          {(activeNav === 'Overview' || activeNav === 'Dashboard') && (
             <>
+              {/* Security Alert Banner matching Screenshot 1 */}
+              <SecurityAlertBanner
+                onPasswordChanged={(routerHost, newPass) => {
+                  logActivity('update', 'router', `Updated weak password on router ${routerHost}`)
+                  setNotice(`Router ${routerHost} password updated! Security alert resolved.`)
+                  setTimeout(() => setNotice(''), 3500)
+                }}
+                onRecheck={() => {
+                  setNotice('Router security audit completed.')
+                  setTimeout(() => setNotice(''), 2500)
+                }}
+              />
+
+              {/* Freelsp Parity 8 Metric Cards, Router View, and Status matching Screenshots 1-2 */}
+              <FreelspDashboardCards
+                selectedRouter={selectedRouterView}
+                onSelectRouter={setSelectedRouterView}
+                privacyMode={privacyMode}
+                onTogglePrivacy={togglePrivacyMode}
+                incomeToday={todayIncome}
+                incomeMonth={monthIncome}
+                activeCount={vouchersList.filter((v) => v.status === 'active').length}
+                expiredCount={vouchersList.filter((v) => v.status === 'redeemed').length}
+                totalUsersCount={customersList.length}
+                hotspotOnlineCount={liveSessionCount}
+                pppoeOnlineCount={0}
+                staticOnlineCount={0}
+                totalOnlineCount={liveSessionCount}
+                onNavigate={handleNavSelect}
+                onRefreshOnline={() => {
+                  setIsRefreshingOnline(true)
+                  void loadAllDatabaseData()
+                  setTimeout(() => {
+                    setIsRefreshingOnline(false)
+                    setNotice('Online users refreshed from router.')
+                    setTimeout(() => setNotice(''), 2500)
+                  }, 800)
+                }}
+                isRefreshingOnline={isRefreshingOnline}
+              />
               <section className="page-heading">
                 <div>
                   <p className="eyebrow">{new Date().toLocaleDateString(undefined, { weekday: 'long', month: 'long', day: 'numeric', year: 'numeric' })}</p>
@@ -2678,7 +2813,7 @@ function OperatorDashboard({
             </>
           )}
 
-          {activeNav === 'Packages' && (
+          {(activeNav === 'Packages' || activeNav.startsWith('Plans:')) && (
             <PackagesManagementView
               packages={packages}
               onToggleActive={handleTogglePackageActive}
@@ -2691,7 +2826,7 @@ function OperatorDashboard({
             />
           )}
 
-          {activeNav === 'Vouchers' && (
+          {(activeNav === 'Vouchers' || activeNav.startsWith('Vouchers:')) && (
             <VouchersManagementView
               vouchers={vouchersList}
               onDelete={handleDeleteVoucher}
@@ -2706,14 +2841,14 @@ function OperatorDashboard({
             />
           )}
 
-          {activeNav === 'Transactions' && (
+          {(activeNav === 'Transactions' || activeNav.startsWith('Transactions:')) && (
             <TransactionsManagementView
               transactions={transactionsList}
               onRecordNewClick={() => setShowRecordTrx(true)}
             />
           )}
 
-          {activeNav === 'Customers' && (
+          {(activeNav === 'Customers' || activeNav.startsWith('Customers:')) && (
             <CustomersManagementView
               customers={customersList}
               onToggleBlock={handleToggleBlockCustomer}
@@ -2729,13 +2864,104 @@ function OperatorDashboard({
             />
           )}
 
-          {activeNav === 'Routers' && (
+          {(activeNav === 'Routers' || activeNav === 'Network:Routers') && (
             <RoutersManagementView
               routers={routerDevices}
               onPing={handlePingRouter}
               onReboot={handleRebootRouter}
               onDelete={handleDeleteRouter}
               onAddNewClick={() => setShowAddRouter(true)}
+            />
+          )}
+
+          {activeNav === 'Leads' && (
+            <LeadsView
+              onConvertCustomer={(lead) => {
+                setShowAddCustomer(true)
+                setNotice(`Converting lead ${lead.name} to customer record.`)
+              }}
+            />
+          )}
+
+          {activeNav.startsWith('Activation') && (
+            <ActivationView
+              currentSubView={activeNav}
+              onSelectSubView={handleNavSelect}
+              onOpenAddCustomer={() => setShowAddCustomer(true)}
+              onSendSms={(phone, txt) => {
+                setSelectedCustomerForSms({
+                  id: 'quick',
+                  name: 'Customer',
+                  phone,
+                  device: 'Device',
+                  plan: 'Active Plan',
+                  total_spent: 'KSh 0',
+                  data_usage: '0 MB',
+                  status: 'active',
+                  last_active: 'Today',
+                  avatar_color: '#317d75',
+                  usage: '0 MB',
+                  connectedDevice: 'Device',
+                  ipAddress: '192.168.88.10',
+                  macAddress: 'AA:BB:CC:DD:EE:FF',
+                  firstSeen: 'Today',
+                  lastSeen: 'Today',
+                  totalPaidKsh: 50,
+                })
+                setCustomerSmsText(txt)
+                setShowSendCustomerSms(true)
+              }}
+            />
+          )}
+
+          {(activeNav.startsWith('Binding') || activeNav === 'Binding') && (
+            <HotspotBindingView
+              activeTab={activeNav as any}
+              onSelectTab={handleNavSelect}
+            />
+          )}
+
+          {(activeNav.startsWith('DataUsage') || activeNav === 'Data Usage') && (
+            <DataUsageView
+              initialWindow={activeNav.includes('Monthly') ? 'monthly' : activeNav.includes('Weekly') ? 'weekly' : 'daily'}
+              onSelectWindow={(w) => setActiveNav(`DataUsage:${w.charAt(0).toUpperCase() + w.slice(1)}`)}
+            />
+          )}
+
+          {activeNav === 'Support Ticket' && (
+            <SupportTicketsView />
+          )}
+
+          {activeNav.startsWith('Notifications') && (
+            <NotificationsView
+              initialTab={activeNav}
+              onSelectTab={handleNavSelect}
+            />
+          )}
+
+          {activeNav.startsWith('Network') && activeNav !== 'Network:Routers' && (
+            <NetworkManagementView
+              activeTab={activeNav}
+              onSelectTab={handleNavSelect}
+              onOpenAddRouter={() => setShowAddRouter(true)}
+            />
+          )}
+
+          {activeNav.startsWith('Diagnostics') && (
+            <DiagnosticsView
+              viewType={
+                activeNav === 'Diagnostics:Starlink'
+                  ? 'starlink'
+                  : activeNav === 'Diagnostics:NoInternet'
+                  ? 'noInternet'
+                  : activeNav === 'Diagnostics:Tutorials'
+                  ? 'tutorials'
+                  : activeNav === 'Diagnostics:Registration'
+                  ? 'registration'
+                  : activeNav === 'Diagnostics:DefaultPage'
+                  ? 'defaultPage'
+                  : 'oldSetup'
+              }
             />
           )}
 
@@ -2860,6 +3086,28 @@ function OperatorDashboard({
           )}
         </div>
       </main>
+
+      {/* Downtime Compensation Modal */}
+      <CompensateModal
+        isOpen={showCompensateModal}
+        onClose={() => setShowCompensateModal(false)}
+        onSuccess={(msg) => {
+          setNotice(msg)
+          logActivity('update', 'voucher', msg)
+          setTimeout(() => setNotice(''), 3500)
+        }}
+      />
+
+      {/* Disable Hotspot Server (Maintenance Mode) Modal */}
+      <DisableHotspotModal
+        isOpen={showDisableHotspotModal}
+        onClose={() => setShowDisableHotspotModal(false)}
+        onSuccess={(msg) => {
+          setNotice(msg)
+          logActivity('update', 'router', msg)
+          setTimeout(() => setNotice(''), 3500)
+        }}
+      />
 
       {/* Record Payment Transaction Modal */}
       {showRecordTrx && (
